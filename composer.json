@@ -1,0 +1,21 @@
+{
+    "name": "jdwil/zest",
+    "type": "project",
+    "authors": [
+        {
+            "name": "JD Williams",
+            "email": "me@jdwilliams.xyz"
+        }
+    ],
+    "autoload" : {
+        "psr-4" : {
+            "JDWil\\Zest\\" : "src/"
+        }
+    },
+    "require": {
+        "jdwil/php-genny": "^0.1.0"
+    },
+    "require-dev": {
+        "jdwil/unify": "^0.0.1"
+    }
+}
