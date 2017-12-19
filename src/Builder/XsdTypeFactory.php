@@ -17,7 +17,6 @@ use JDWil\PhpGenny\Type\Parameter;
 use JDWil\PhpGenny\Type\Property;
 use JDWil\PhpGenny\ValueObject\InternalType;
 use JDWil\PhpGenny\ValueObject\Visibility;
-use PhpParser\Node\Expr\MethodCall;
 
 class XsdTypeFactory
 {
@@ -67,6 +66,22 @@ class XsdTypeFactory
     }
 
     /**
+     * @return Class_[]
+     */
+    public function getClasses(): array
+    {
+        return $this->classes;
+    }
+
+    /**
+     * @return Interface_[]
+     */
+    public function getInterfaces(): array
+    {
+        return $this->interfaces;
+    }
+
+    /**
      * @return Class_
      * @throws \Exception
      */
@@ -99,10 +114,12 @@ class XsdTypeFactory
         $isValidUri
             ->getBody()
             ->return(
-                ResultOf::filter_var(
-                    Variable::named('uri'),
-                    Type::constant('FILTER_VALIDATE_URL')
-                )->isNotIdenticalTo(Type::false())
+                Cast::toBool(
+                    ResultOf::preg_match(
+                        Scalar::string('#(([a-zA-Z][0-9a-zA-Z+\-\.]*:)?/{0,2}[0-9a-zA-Z;/?:@\&=+$\.\-!~*\'()%]+)?(\#[0-9a-zA-Z;/?:@\&=+$\.\-_!~*\'()%]+)?#'),
+                        Variable::named('uri')
+                    )
+                )
             )
         ;
         $c->addMethod($isValidUri);
@@ -995,7 +1012,7 @@ class XsdTypeFactory
         $isInRange = new Method('isInRange', Visibility::isPrivate());
         $isInRange->addParameter(new Parameter('number', InternalType::int()));
         $isInRange->getBody()->return(
-            Variable::named('number')->isLessThanOrEqualTo(Scalar::int(18446744073709551615))
+            Variable::named('number')->isLessThanOrEqualTo(Scalar::float(18446744073709551615))
                 ->booleanAnd(Variable::named('number')->isGreaterThanOrEqualTo(Scalar::int(0)))
         );
         $c->addMethod($isInRange);

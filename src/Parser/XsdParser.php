@@ -3,113 +3,81 @@ declare(strict_types=1);
 
 namespace JDWil\Zest\Parser;
 
-use JDWil\Xsd\Context\ContextInterface;
-use JDWil\Xsd\Entity\Schema;
+use JDWil\Zest\Element\Import;
+use JDWil\Zest\Element\Schema;
+use JDWil\Zest\Exception\InvalidSchemaException;
+use JDWil\Zest\Model\SchemaCollection;
 
 class XsdParser
 {
     private $processedSchemas;
-    private $nodes;
+
+    /**
+     * @var SchemaCollection
+     */
+    private $schemas;
 
     public function __construct()
     {
         $this->processedSchemas = [];
-        $this->nodes = [];
+        $this->schemas = new SchemaCollection();
     }
 
     /**
      * @param string $pathToXsd
-     * @return array
+     * @return SchemaCollection
+     * @throws \JDWil\Zest\Exception\ValidationException
+     * @throws \JDWil\Zest\Exception\InvalidSchemaException
+     * @throws \Exception
      */
-    public function parseXsdFile(string $pathToXsd): array
+    public function parseXsdFile(string $pathToXsd): SchemaCollection
     {
         $document = new \DOMDocument('1.0', 'UTF-8');
         $document->load($pathToXsd);
-        $this->processElement($document->documentElement);
+        $this->parseDocument($document);
 
-        return $this->nodes;
+        return $this->schemas;
     }
 
     /**
-     * @param \DOMElement $node
-     * @return array
+     * @param \DOMDocument $doc
+     * @throws InvalidSchemaException
+     * @throws \JDWil\Zest\Exception\ValidationException
+     * @throws \Exception
      */
-    private function processElement(\DOMElement $node, array $currentSchema = [], bool $store = false)
+    protected function parseDocument(\DOMDocument $doc)
     {
-        $schemaLevel = false;
-
-        $nodeArray = [
-            'type' => $node->nodeName,
-            'schema' => empty($currentSchema) ? null : $currentSchema['schemaName'],
-            'attributes' => [],
-            'children' => []
-        ];
-
-        if ($node->localName === 'schema') {
-            if (!$currentSchema = $this->processSchema($node)) {
-                return;
-            }
-
-            $schemaLevel = true;
-        } else if ($node->localName === 'import') {
-            $this->processImport($node);
-        } else {
-            /** @var \DOMAttr $attribute */
-            foreach ($node->attributes as $attribute) {
-                $nodeArray['attributes'][$attribute->name] = $attribute->value;
+        /** @var \DOMElement $child */
+        foreach ($doc->childNodes as $child) {
+            switch ($child->localName) {
+                case 'schema':
+                    $schema = Schema::fromDomElement($child);
+                    $this->schemas->addSchema($schema);
+                    foreach ($schema->getImports() as $import) {
+                        $this->processImport($import);
+                    }
+                    break;
+                default:
+                    throw new InvalidSchemaException('Bad element in document: ' . $child->localName);
+                    break;
             }
         }
-
-        if ($node->hasChildNodes()) {
-            foreach ($node->childNodes as $childNode) {
-                if ($childNode instanceof \DOMElement) {
-                    $nodeArray['children'][] = $this->processElement($childNode, $currentSchema, $schemaLevel);
-                }
-            }
-        }
-
-        if ($store) {
-            $this->nodes[] = $nodeArray;
-        }
-
-        return $nodeArray;
     }
 
     /**
-     * @param \DOMElement $schema
-     * @return array|null
+     * @param Import $import
+     * @throws \Exception
      */
-    private function processSchema(\DOMElement $schema)
+    private function processImport(Import $import)
     {
-        $schemaArray = [
-            'name' => 'schema',
-            'schemaName' => null,
-            'childSchemas' => []
-        ];
+        $location = (string) $import->getSchemaLocation();
 
-        $xpath = new \DOMXPath($schema->ownerDocument);
-        foreach ($xpath->query('namespace::*') as $nsNode) {
-            /** @var \DOMNameSpaceNode $nsNode */
-            if ($nsNode->localName === 'xmlns') {
-                $schemaArray['schemaName'] = $nsNode->nodeValue;
-            } else {
-                $schemaArray['childSchemas'][$nsNode->localName] = $nsNode->nodeValue;
-            }
+        if (in_array($location, $this->processedSchemas, true)) {
+            return;
         }
+        $this->processedSchemas[] = $location;
 
-        if (!in_array($schemaArray['schemaName'], $this->processedSchemas, true)) {
-            $this->processedSchemas[] = $schemaArray['schemaName'];
-
-            return $schemaArray;
-        }
-
-        return null;
-    }
-
-    private function processImport(\DOMElement $import)
-    {
-        $location = $import->getAttribute('schemaLocation');
-        $baseUri = $import->baseURI;
+        $baseUri = $import->getBaseUri();
         $pieces = explode('/', $baseUri);
         array_pop($pieces);
         $pieces[] = $location;
@@ -122,6 +90,6 @@ class XsdParser
             );
         }
 
-        $this->processElement($document->documentElement);
+        $this->parseDocument($document);
     }
 }
