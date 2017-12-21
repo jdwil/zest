@@ -23,13 +23,14 @@ class Union extends AbstractElement implements IdentifiableInterface, AnyAttribu
 
     /**
      * @param \DOMElement $e
+     * @param AbstractElement|null $parent
      * @return Union
-     * @throws \JDWil\Zest\Exception\InvalidSchemaException
+     * @throws InvalidSchemaException
      */
-    public static function fromDomElement(\DOMElement $e): Union
+    public static function fromDomElement(\DOMElement $e, AbstractElement $parent = null): Union
     {
         $ret = new static;
-        $ret->load($e);
+        $ret->load($e, $parent);
 
         if ($memberTypes = $e->getAttribute('memberTypes')) {
             $ret->memberTypes = explode(' ', $memberTypes);
@@ -45,7 +46,7 @@ class Union extends AbstractElement implements IdentifiableInterface, AnyAttribu
                     continue 2;
 
                 case 'simpleType':
-                    $ret->simpleTypes[] = SimpleType::fromDomElement($child);
+                    $ret->simpleTypes[] = SimpleType::fromDomElement($child, $ret);
                     break;
 
                 default:

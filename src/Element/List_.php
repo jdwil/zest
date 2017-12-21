@@ -26,13 +26,14 @@ class List_ extends AbstractElement implements IdentifiableInterface, AnyAttribu
 
     /**
      * @param \DOMElement $e
+     * @param AbstractElement|null $parent
      * @return List_
-     * @throws \JDWil\Zest\Exception\InvalidSchemaException
+     * @throws InvalidSchemaException
      */
-    public static function fromDomElement(\DOMElement $e): List_
+    public static function fromDomElement(\DOMElement $e, AbstractElement $parent = null): List_
     {
         $ret = new static;
-        $ret->load($e);
+        $ret->load($e, $parent);
 
         if ($itemType = $e->getAttribute('itemType')) {
             $ret->itemType = $itemType;
@@ -48,7 +49,7 @@ class List_ extends AbstractElement implements IdentifiableInterface, AnyAttribu
                     continue 2;
 
                 case 'simpleType':
-                    $ret->simpleType = SimpleType::fromDomElement($child);
+                    $ret->simpleType = SimpleType::fromDomElement($child, $ret);
                     break;
 
                 default:

@@ -53,4 +53,14 @@ class NamespaceUtil
     {
         $this->schemas[$schema][$alias] = $full;
     }
+
+    /**
+     * @param string $schema
+     * @param string $alias
+     * @return false|string
+     */
+    public function getNamespaceMapping(string $schema, string $alias)
+    {
+        return $this->schemas[$schema][$alias] ?? false;
+    }
 }

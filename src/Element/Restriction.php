@@ -39,15 +39,15 @@ class Restriction extends AbstractElement implements IdentifiableInterface, AnyA
 
     /**
      * @param \DOMElement $e
+     * @param AbstractElement|null $parent
      * @return Restriction
-     * @throws \JDWil\Zest\Exception\ValidationException
-     * @throws \JDWil\Zest\Exception\InvalidSchemaException
+     * @throws InvalidSchemaException
      */
-    public static function fromDomElement(\DOMElement $e): Restriction
+    public static function fromDomElement(\DOMElement $e, AbstractElement $parent = null): Restriction
     {
         $ret = new static;
         $ret->facets = [];
-        $ret->load($e);
+        $ret->load($e, $parent);
 
         foreach ($e->attributes as $key => $value) {
             switch ($key) {
@@ -74,7 +74,7 @@ class Restriction extends AbstractElement implements IdentifiableInterface, AnyA
                     break;
 
                 case 'simpleType':
-                    $ret->simpleType = SimpleType::fromDomElement($child);
+                    $ret->simpleType = SimpleType::fromDomElement($child, $ret);
                     break;
 
                 case 'minExclusive':

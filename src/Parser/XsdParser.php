@@ -41,11 +41,12 @@ class XsdParser
 
     /**
      * @param \DOMDocument $doc
+     * @return Schema
      * @throws InvalidSchemaException
      * @throws \JDWil\Zest\Exception\ValidationException
      * @throws \Exception
      */
-    protected function parseDocument(\DOMDocument $doc)
+    protected function parseDocument(\DOMDocument $doc): Schema
     {
         /** @var \DOMElement $child */
         foreach ($doc->childNodes as $child) {
@@ -54,9 +55,12 @@ class XsdParser
                     $schema = Schema::fromDomElement($child);
                     $this->schemas->addSchema($schema);
                     foreach ($schema->getImports() as $import) {
-                        $this->processImport($import);
+                        $childSchema = $this->processImport($import);
+                        $schema->resolveSchemaAlias($childSchema);
                     }
-                    break;
+
+                    return $schema;
+
                 default:
                     throw new InvalidSchemaException('Bad element in document: ' . $child->localName);
                     break;
@@ -66,14 +70,15 @@ class XsdParser
 
     /**
      * @param Import $import
+     * @return Schema
      * @throws \Exception
      */
-    private function processImport(Import $import)
+    private function processImport(Import $import): Schema
     {
         $location = (string) $import->getSchemaLocation();
 
-        if (in_array($location, $this->processedSchemas, true)) {
-            return;
+        if (\in_array($location, $this->processedSchemas, true)) {
+            return $this->schemas->getSchemaByXmlns((string) $import->getNamespace());
         }
         $this->processedSchemas[] = $location;
 
@@ -90,6 +95,6 @@ class XsdParser
             );
         }
 
-        $this->parseDocument($document);
+        return $this->parseDocument($document);
     }
 }

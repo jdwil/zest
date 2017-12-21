@@ -5,45 +5,39 @@ namespace JDWil\Zest\Element;
 
 use JDWil\Zest\Element\Traits\AnyAttributeTrait;
 use JDWil\Zest\Element\Traits\IdentifiableTrait;
-use JDWil\Zest\XsdType\AnyUri;
+use JDWil\Zest\Exception\InvalidSchemaException;
 
 /**
- * Class Import
+ * Class Include_
  */
-class Import extends AbstractElement implements IdentifiableInterface, AnyAttributeInterface
+class Include_ extends AbstractElement implements IdentifiableInterface, AnyAttributeInterface
 {
     use IdentifiableTrait, AnyAttributeTrait;
 
     /**
-     * @var AnyUri|null
-     */
-    protected $namespace;
-
-    /**
-     * @var AnyUri|null
+     * @var string
      */
     protected $schemaLocation;
 
     /**
      * @param \DOMElement $e
-     * @param AbstractElement|null $parent
-     * @return Import
+     * @param AbstractElement $parent
+     * @return Include_
      * @throws \JDWil\Zest\Exception\InvalidSchemaException
-     * @throws \JDWil\Zest\Exception\ValidationException
      */
-    public static function fromDomElement(\DOMElement $e, AbstractElement $parent = null): Import
+    public static function fromDomElement(\DOMElement $e, AbstractElement $parent = null): Include_
     {
         $ret = new static;
         $ret->load($e, $parent);
 
         foreach ($e->attributes as $key => $value) {
             switch ($key) {
-                case 'namespace':
-                    $ret->namespace = new AnyUri($value->value);
+                case 'id':
+                    $ret->id = $value->value;
                     break;
 
                 case 'schemaLocation':
-                    $ret->schemaLocation = new AnyUri($value->value);
+                    $ret->schemaLocation = $value->value;
                     break;
 
                 default:
@@ -52,21 +46,17 @@ class Import extends AbstractElement implements IdentifiableInterface, AnyAttrib
             }
         }
 
+        if (null === $ret->schemaLocation) {
+            throw new InvalidSchemaException('schemaLocation is required on include', $e);
+        }
+
         return $ret;
     }
 
     /**
-     * @return AnyUri|null
+     * @return string
      */
-    public function getNamespace()
-    {
-        return $this->namespace;
-    }
-
-    /**
-     * @return AnyUri|null
-     */
-    public function getSchemaLocation()
+    public function getSchemaLocation(): string
     {
         return $this->schemaLocation;
     }

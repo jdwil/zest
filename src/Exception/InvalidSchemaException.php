@@ -12,7 +12,7 @@ class InvalidSchemaException extends \Exception
     public function __construct(string $message, \DOMElement $e = null)
     {
         if (null !== $e) {
-            $message .= "\nDOM Element:\n" . print_r($e, true);
+            $message .= "\nIn " . $e->baseURI . ':' . $e->getLineNo() . "\n";
         }
         parent::__construct($message);
     }

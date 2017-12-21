@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace JDWil\Zest\Element;
 
+/**
+ * Class AbstractElement
+ */
 abstract class AbstractElement
 {
     /**
@@ -19,6 +22,11 @@ abstract class AbstractElement
      * @var \DOMElement
      */
     protected $parent;
+
+    /**
+     * @var AbstractElement
+     */
+    protected $parentElement;
 
     /**
      * @var \DOMElement[]
@@ -56,24 +64,37 @@ abstract class AbstractElement
     protected $textContent;
 
     /**
-     * @var string
+     * @var Annotation[]
      */
-    protected $annotation;
+    protected $annotations;
 
     /**
      * @var string
      */
     protected $schemaNamespace;
 
+    /**
+     * @var Schema
+     */
+    protected $schema;
+
     protected function __construct() {}
 
     /**
      * @param \DOMElement $e
-     * @throws \JDWil\Zest\Exception\InvalidSchemaException
-     * @throws \JDWil\Zest\Exception\ValidationException
+     * @param AbstractElement $parent
+     * @return mixed
      */
-    protected function load(\DOMElement $e)
+    abstract public static function fromDomElement(\DOMElement $e, AbstractElement $parent = null);
+
+    /**
+     * @param \DOMElement $e
+     * @param AbstractElement $parent
+     * @throws \JDWil\Zest\Exception\InvalidSchemaException
+     */
+    protected function load(\DOMElement $e, AbstractElement $parent = null)
     {
+        $this->annotations = [];
         $this->tagName = $e->tagName;
         $this->schemaTypeInfo = $e->schemaTypeInfo;
         $this->parent = $e->parentNode;
@@ -84,11 +105,17 @@ abstract class AbstractElement
         $this->localName = $e->localName;
         $this->baseUri = $e->baseURI;
         $this->textContent = $e->textContent;
+        $this->parentElement = $parent;
+
+        if (null !== $parent) {
+            $this->schema = $parent instanceof Schema ? $parent : $parent->schema;
+        }
 
         foreach ($this->children as $child) {
             if ($child->localName === 'annotation') {
                 // @todo test this
-                $this->annotation = $child->textContent;
+                $this->annotations[] = Annotation::fromDomElement($child, $this);
+
             }
         }
 
@@ -194,11 +221,11 @@ abstract class AbstractElement
     }
 
     /**
-     * @return string
+     * @return Annotation[]
      */
-    public function getAnnotation(): string
+    public function getAnnotations(): array
     {
-        return $this->annotation;
+        return $this->annotations;
     }
 
     /**
@@ -207,5 +234,13 @@ abstract class AbstractElement
     public function childOfSchema(): bool
     {
         return $this->parent->localName === 'schema';
+    }
+
+    /**
+     * @return Schema
+     */
+    public function getSchema(): Schema
+    {
+        return $this->schema;
     }
 }

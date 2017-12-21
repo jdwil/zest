@@ -36,14 +36,14 @@ class SimpleType extends AbstractElement implements IdentifiableInterface, AnyAt
 
     /**
      * @param \DOMElement $e
+     * @param AbstractElement $parent
      * @return SimpleType
-     * @throws \JDWil\Zest\Exception\ValidationException
-     * @throws \JDWil\Zest\Exception\InvalidSchemaException
+     * @throws InvalidSchemaException
      */
-    public static function fromDomElement(\DOMElement $e): SimpleType
+    public static function fromDomElement(\DOMElement $e, AbstractElement $parent = null): SimpleType
     {
         $ret = new static;
-        $ret->load($e);
+        $ret->load($e, $parent);
 
         foreach ($e->attributes as $name => $value) {
             switch ($name) {
@@ -66,19 +66,18 @@ class SimpleType extends AbstractElement implements IdentifiableInterface, AnyAt
 
             switch ($child->localName) {
                 case 'restriction':
-                    $ret->restriction = Restriction::fromDomElement($child);
+                    $ret->restriction = Restriction::fromDomElement($child, $ret);
                     break;
 
                 case 'union':
-                    $ret->union = Union::fromDomElement($child);
+                    $ret->union = Union::fromDomElement($child, $ret);
                     break;
 
                 case 'list':
-                    $ret->list = List_::fromDomElement($child);
+                    $ret->list = List_::fromDomElement($child, $ret);
                     break;
 
                 default:
-                    var_dump($child);
                     throw new InvalidSchemaException('Bad child in simpleType: ' . $child->localName, $e);
             }
         }

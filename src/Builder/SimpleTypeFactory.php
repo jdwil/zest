@@ -85,6 +85,10 @@ class SimpleTypeFactory
         $this->c = new Class_($simpleType->getName());
         $this->c->setNamespace($this->nsUtil->schemaToNamespace($simpleType->getSchemaNamespace()));
 
+        if (isset($this->classes[$this->c->getFqn()])) {
+            return $this->classes[$this->c->getFqn()];
+        }
+
         $this->c->addProperty(new Property('value', Visibility::isPrivate()));
 
         $this->constructor = new Method('__construct');
