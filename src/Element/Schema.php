@@ -123,6 +123,12 @@ class Schema extends AbstractElement implements IdentifiableInterface, AnyAttrib
         $ret = new static;
         $ret->imports = [];
         $ret->simpleTypes = [];
+        $ret->elements = [];
+        $ret->attributes = [];
+        $ret->notations = [];
+        $ret->complexTypes = [];
+        $ret->attributeGroups = [];
+        $ret->redefines = [];
         $ret->load($e, $parent);
 
         $xpath = new \DOMXPath($e->ownerDocument);
@@ -281,16 +287,15 @@ class Schema extends AbstractElement implements IdentifiableInterface, AnyAttrib
 
     /**
      * @param string $alias
-     * @return Schema
+     * @return Schema|false
      */
-    public function getAlias(string $alias): Schema
+    public function getAlias(string $alias)
     {
-        return $this->alias[$alias];
+        return $this->alias[$alias] ?? false;
     }
 
     /**
      * @param Schema $schema
-     * @throws InvalidSchemaException
      */
     public function resolveSchemaAlias(Schema $schema)
     {

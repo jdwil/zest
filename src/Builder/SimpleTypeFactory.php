@@ -18,6 +18,7 @@ use JDWil\PhpGenny\Type\Property;
 use JDWil\PhpGenny\ValueObject\InternalType;
 use JDWil\PhpGenny\ValueObject\Visibility;
 use JDWil\Zest\Element\SimpleType;
+use JDWil\Zest\Exception\UnimplementedException;
 use JDWil\Zest\Facet\Enumeration;
 use JDWil\Zest\Facet\FractionDigits;
 use JDWil\Zest\Facet\Length;
@@ -32,6 +33,7 @@ use JDWil\Zest\Facet\TotalDigits;
 use JDWil\Zest\Facet\WhiteSpace;
 use JDWil\Zest\Util\NamespaceUtil;
 use JDWil\Zest\Util\TypeUtil;
+use JDWil\Zest\XsdType\QName;
 
 class SimpleTypeFactory
 {
@@ -39,11 +41,6 @@ class SimpleTypeFactory
      * @var Class_[]
      */
     protected $classes;
-
-    /**
-     * @var NamespaceUtil
-     */
-    protected $nsUtil;
 
     /**
      * @var Method
@@ -61,15 +58,21 @@ class SimpleTypeFactory
     protected $xsdFactory;
 
     /**
+     * @var ZestClassFactory
+     */
+    protected $zestClassFactory;
+
+    /**
      * @var Class_
      */
     protected $c;
 
-    public function __construct(NamespaceUtil $tool, Class_ $validationException, XsdTypeFactory $xsdFactory)
+    public function __construct(Config $config, XsdTypeFactory $xsdFactory, ZestClassFactory $zestClassFactory)
     {
-        $this->nsUtil = $tool;
-        $this->validationException = $validationException;
         $this->xsdFactory = $xsdFactory;
+        $this->zestClassFactory = $zestClassFactory;
+
+        $this->validationException = $zestClassFactory->buildValidationException();
     }
 
     /**
@@ -83,7 +86,7 @@ class SimpleTypeFactory
     public function buildSimpleType(SimpleType $simpleType): Class_
     {
         $this->c = new Class_($simpleType->getName());
-        $this->c->setNamespace($this->nsUtil->schemaToNamespace($simpleType->getSchemaNamespace()));
+        $this->c->setNamespace(NamespaceUtil::schemaToNamespace($simpleType->getSchemaNamespace()));
 
         if (isset($this->classes[$this->c->getFqn()])) {
             return $this->classes[$this->c->getFqn()];
@@ -99,7 +102,11 @@ class SimpleTypeFactory
         $getValue->getBody()->return(Variable::named('this')->property('value'));
         $this->c->addMethod($getValue);
 
+        $this->addToStringMethod();
+
         $this->addRestrictions($simpleType);
+        $this->addList($simpleType);
+        $this->addUnion($simpleType);
 
         $this->constructor->getBody()->execute(Variable::named('this')->property('value')->equals(Variable::named('value')));
 
@@ -108,17 +115,22 @@ class SimpleTypeFactory
         return $this->c;
     }
 
+    /**
+     * @param SimpleType $simpleType
+     * @throws \Exception
+     */
     private function addRestrictions(SimpleType $simpleType)
     {
         if (!$restriction = $simpleType->getRestriction()) {
             return;
         }
 
-        if ($type = TypeUtil::mapXsdTypeToInternalType($restriction->getBase())) {
+        $baseQName = new QName($restriction->getBase());
+        if ($type = TypeUtil::mapXsdTypeToInternalType($baseQName)) {
             $this->getValueProperty()->setType($type);
             $this->getValueParameter()->setType($type);
             $this->getGetValueMethod()->setReturnTypes([$type]);
-        } else if ($type = TypeUtil::mapXsdTypeToInternalXsdType($restriction->getBase(), $this->xsdFactory)) {
+        } else if ($type = TypeUtil::mapXsdTypeToInternalXsdType($baseQName, $this->xsdFactory)) {
             $this->getValueProperty()->setType($type);
             $this->getValueParameter()->setType($type);
             $this->getGetValueMethod()->setReturnTypes([$type]);
@@ -239,6 +251,20 @@ class SimpleTypeFactory
         }
     }
 
+    private function addList(SimpleType $simpleType)
+    {
+        if (null !== $simpleType->getList()) {
+            //throw new UnimplementedException('SimpleType - List');
+        }
+    }
+
+    private function addUnion(SimpleType $simpleType)
+    {
+        if (null !== $simpleType->getUnion()) {
+            //throw new UnimplementedException('SimpleType - Union');
+        }
+    }
+
     /**
      * @return Property
      */
@@ -273,5 +299,23 @@ class SimpleTypeFactory
                 return $method;
             }
         }
+    }
+
+    private function addToStringMethod()
+    {
+        if (!$this->c->getMethodByName('__toString')) {
+            $m = new Method('__toString');
+            $m->setReturnTypes([InternalType::string()]);
+            $m->getBody()->return(Cast::toString(Variable::named('this')->property('value')));
+            $this->c->addMethod($m);
+        }
+    }
+
+    /**
+     * @return Class_[]
+     */
+    public function getClasses(): array
+    {
+        return $this->classes;
     }
 }

@@ -34,6 +34,16 @@ class QName
     }
 
     /**
+     * @return string
+     */
+    public function __toString(): string
+    {
+        return null === $this->namespace ?
+            $this->name :
+            $this->namespace . ':' . $this->name;
+    }
+
+    /**
      * @return null|string
      */
     public function getNamespace()

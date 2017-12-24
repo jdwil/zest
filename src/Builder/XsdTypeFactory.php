@@ -52,17 +52,16 @@ class XsdTypeFactory
 
     /**
      * XsdTypeFactory constructor.
-     * @param string $namespace
-     * @param Class_ $validationExceptionClass
+     * @param Config $config
      */
-    public function __construct(string $namespace, Class_ $validationExceptionClass)
+    public function __construct(Config $config)
     {
         $this->classes = [];
         $this->interfaces = [];
         $this->methods = [];
         $this->properties = [];
-        $this->namespace = $namespace;
-        $this->exceptionClass = $validationExceptionClass;
+        $this->namespace = $config->xsdTypeNamespacePrefix;
+        $this->exceptionClass = $config->validationExceptionClass;
     }
 
     /**

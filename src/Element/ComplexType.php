@@ -33,7 +33,7 @@ class ComplexType extends AbstractElement implements IdentifiableInterface, AnyA
     protected $block;
 
     /**
-     * @var string
+     * @var string|null
      */
     protected $final;
 
@@ -93,6 +93,8 @@ class ComplexType extends AbstractElement implements IdentifiableInterface, AnyA
     {
         $ret = new static;
         $ret->load($e, $parent);
+        $ret->abstract = false;
+        $ret->mixed = false;
         $ret->attributes = [];
         $ret->attributeGroups = [];
 
@@ -174,5 +176,128 @@ class ComplexType extends AbstractElement implements IdentifiableInterface, AnyA
         }
 
         return $ret;
+    }
+
+    /**
+     * @return string
+     */
+    public function getName(): string
+    {
+        return $this->name;
+    }
+
+    /**
+     * @return bool
+     */
+    public function isAbstract(): bool
+    {
+        return $this->abstract;
+    }
+
+    /**
+     * @return bool
+     */
+    public function isMixed(): bool
+    {
+        return $this->mixed;
+    }
+
+    /**
+     * @return string
+     */
+    public function getBlock(): string
+    {
+        return $this->block;
+    }
+
+    /**
+     * @return string|null
+     */
+    public function getFinal()
+    {
+        return $this->final;
+    }
+
+    /**
+     * @return SimpleContent|null
+     */
+    public function getSimpleContent()
+    {
+        return $this->simpleContent;
+    }
+
+    /**
+     * @return ComplexContent|null
+     */
+    public function getComplexContent()
+    {
+        return $this->complexContent;
+    }
+
+    /**
+     * @return Group|null
+     */
+    public function getGroup()
+    {
+        return $this->group;
+    }
+
+    /**
+     * @return All|null
+     */
+    public function getAll()
+    {
+        return $this->all;
+    }
+
+    /**
+     * @return Choice|null
+     */
+    public function getChoice()
+    {
+        return $this->choice;
+    }
+
+    /**
+     * @return Sequence|null
+     */
+    public function getSequence()
+    {
+        return $this->sequence;
+    }
+
+    /**
+     * @return Attribute[]
+     */
+    public function getAttributes(): array
+    {
+        return $this->attributes;
+    }
+
+    /**
+     * @return AttributeGroup[]
+     */
+    public function getAttributeGroups(): array
+    {
+        return $this->attributeGroups;
+    }
+
+    /**
+     * @return AnyAttribute|null
+     */
+    public function getAnyAttribute()
+    {
+        return $this->anyAttribute;
+    }
+
+    /**
+     * @return bool
+     */
+    public function hasXmlChildren(): bool
+    {
+        return null !== $this->group ||
+            null !== $this->all ||
+            null !== $this->choice ||
+            null !== $this->sequence;
     }
 }

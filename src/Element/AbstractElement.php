@@ -2,12 +2,19 @@
 declare(strict_types=1);
 
 namespace JDWil\Zest\Element;
+use JDWil\Zest\Exception\InvalidSchemaException;
+use JDWil\Zest\XsdType\QName;
 
 /**
  * Class AbstractElement
  */
 abstract class AbstractElement
 {
+    /**
+     * @var \DOMElement
+     */
+    protected $domElement;
+
     /**
      * @var string
      */
@@ -95,6 +102,7 @@ abstract class AbstractElement
     protected function load(\DOMElement $e, AbstractElement $parent = null)
     {
         $this->annotations = [];
+        $this->domElement = $e;
         $this->tagName = $e->tagName;
         $this->schemaTypeInfo = $e->schemaTypeInfo;
         $this->parent = $e->parentNode;
@@ -128,6 +136,55 @@ abstract class AbstractElement
                 }
             }
         }
+    }
+
+    /**
+     * @param QName $qname
+     * @return ComplexType|SimpleType|Attribute|Group
+     * @throws InvalidSchemaException
+     */
+    public function resolveQNameToElement(QName $qname)
+    {
+        $schema = $this->getSchema();
+
+        if ($ns = $qname->getNamespace()) {
+            if (!$schema->getAlias($ns)) {
+                foreach ($schema->getImports() as $import) {
+                    if ($import->getSchema()->getTargetNamespace()->getValue() === $qname->getNamespace()) {
+                        $schema = $import->getSchema();
+                        break;
+                    }
+                }
+            } else {
+                $schema = $schema->getAlias($ns);
+            }
+        }
+
+        foreach ($schema->getComplexTypes() as $complexType) {
+            if ($complexType->getName() === $qname->getName()) {
+                return $complexType;
+            }
+        }
+
+        foreach ($schema->getSimpleTypes() as $simpleType) {
+            if ($simpleType->getName() === $qname->getName()) {
+                return $simpleType;
+            }
+        }
+
+        foreach ($schema->getAttributes() as $attribute) {
+            if ($attribute->getName() === $qname->getName()) {
+                return $attribute;
+            }
+        }
+
+        foreach ($schema->getGroups() as $group) {
+            if ($group->getName() === $qname->getName()) {
+                return $group;
+            }
+        }
+
+        throw new InvalidSchemaException('Could not resolve QName: ' . print_r($qname, true), $this->domElement);
     }
 
     /**
@@ -242,5 +299,21 @@ abstract class AbstractElement
     public function getSchema(): Schema
     {
         return $this->schema;
+    }
+
+    /**
+     * @return \DOMElement
+     */
+    public function getDomElement(): \DOMElement
+    {
+        return $this->domElement;
+    }
+
+    /**
+     * @return AbstractElement
+     */
+    public function getParentElement(): AbstractElement
+    {
+        return $this->parentElement;
     }
 }

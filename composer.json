@@ -13,7 +13,8 @@
         }
     },
     "require": {
-        "jdwil/php-genny": "^0.1.0"
+        "jdwil/php-genny": "^0.1.0",
+        "doctrine/inflector": "^1.2"
     },
     "require-dev": {
         "jdwil/unify": "^0.0.1"

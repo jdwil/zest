@@ -34,6 +34,14 @@ class NonNegativeInteger extends AbstractIntegerType
     }
 
     /**
+     * @return int
+     */
+    public function getValue() : int
+    {
+        return $this->value;
+    }
+
+    /**
      * @param int $value
      * @return bool
      */

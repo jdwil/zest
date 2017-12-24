@@ -6,26 +6,10 @@ namespace JDWil\Zest\Util;
 class NamespaceUtil
 {
     /**
-     * @var string
-     */
-    protected $prefix;
-
-    /**
-     * @var array
-     */
-    protected $schemas;
-
-    public function __construct(string $prefix)
-    {
-        $this->prefix = $prefix;
-        $this->schemas = [];
-    }
-
-    /**
      * @param string $schema
      * @return string
      */
-    public function schemaToNamespace(string $schema): string
+    public static function schemaToNamespace(string $schema): string
     {
         $parts = explode('/', parse_url($schema)['path']);
         array_shift($parts);
@@ -34,33 +18,5 @@ class NamespaceUtil
         }, $parts);
 
         return implode('\\', $parts);
-    }
-
-    /**
-     * @param string $schema
-     */
-    public function addSchema(string $schema)
-    {
-        $this->schemas[$schema] = [];
-    }
-
-    /**
-     * @param string $schema
-     * @param string $alias
-     * @param string $full
-     */
-    public function addMapping(string $schema, string $alias, string $full)
-    {
-        $this->schemas[$schema][$alias] = $full;
-    }
-
-    /**
-     * @param string $schema
-     * @param string $alias
-     * @return false|string
-     */
-    public function getNamespaceMapping(string $schema, string $alias)
-    {
-        return $this->schemas[$schema][$alias] ?? false;
     }
 }

@@ -63,6 +63,11 @@ class Sequence extends AbstractElement implements IdentifiableInterface, AnyAttr
         $ret->load($e, $parent);
         $ret->maxOccurs = new NonNegativeInteger(1);
         $ret->minOccurs = new NonNegativeInteger(1);
+        $ret->elements = [];
+        $ret->groups = [];
+        $ret->choices = [];
+        $ret->sequences = [];
+        $ret->any = [];
 
         foreach ($e->attributes as $key => $value) {
             switch ($key) {
@@ -84,6 +89,7 @@ class Sequence extends AbstractElement implements IdentifiableInterface, AnyAttr
             }
         }
 
+        $index = 0;
         foreach ($ret->children as $child) {
             if ($child instanceof \DOMText) {
                 continue;
@@ -95,23 +101,23 @@ class Sequence extends AbstractElement implements IdentifiableInterface, AnyAttr
                     break;
 
                 case 'element':
-                    $ret->elements[] = Element::fromDomElement($child, $ret);
+                    $ret->elements[$index++] = Element::fromDomElement($child, $ret);
                     break;
 
                 case 'group':
-                    $ret->groups[] = Group::fromDomElement($child, $ret);
+                    $ret->groups[$index++] = Group::fromDomElement($child, $ret);
                     break;
 
                 case 'choice':
-                    $ret->choices[] = Choice::fromDomElement($child, $ret);
+                    $ret->choices[$index++] = Choice::fromDomElement($child, $ret);
                     break;
 
                 case 'sequence':
-                    $ret->sequences[] = self::fromDomElement($child, $ret);
+                    $ret->sequences[$index++] = self::fromDomElement($child, $ret);
                     break;
 
                 case 'any':
-                    $ret->any[] = Any::fromDomElement($child, $ret);
+                    $ret->any[$index++] = Any::fromDomElement($child, $ret);
                     break;
 
                 default:
@@ -120,6 +126,14 @@ class Sequence extends AbstractElement implements IdentifiableInterface, AnyAttr
         }
 
         return $ret;
+    }
+
+    /**
+     * @return array
+     */
+    public function getChildElements(): array
+    {
+        return array_replace([], $this->elements, $this->groups, $this->choices, $this->sequences, $this->any);
     }
 
     /**
