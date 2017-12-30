@@ -82,12 +82,12 @@ class Element extends AbstractElement implements IdentifiableInterface, AnyAttri
     protected $final;
 
     /**
-     * @var SimpleType
+     * @var SimpleType|null
      */
     protected $simpleType;
 
     /**
-     * @var ComplexType
+     * @var ComplexType|null
      */
     protected $complexType;
 
@@ -374,17 +374,17 @@ class Element extends AbstractElement implements IdentifiableInterface, AnyAttri
     }
 
     /**
-     * @return SimpleType
+     * @return SimpleType|null
      */
-    public function getSimpleType(): SimpleType
+    public function getSimpleType()
     {
         return $this->simpleType;
     }
 
     /**
-     * @return ComplexType
+     * @return ComplexType|null
      */
-    public function getComplexType(): ComplexType
+    public function getComplexType()
     {
         return $this->complexType;
     }

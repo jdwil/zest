@@ -140,7 +140,7 @@ abstract class AbstractElement
 
     /**
      * @param QName $qname
-     * @return ComplexType|SimpleType|Attribute|Group
+     * @return ComplexType|SimpleType|Attribute|Group|AttributeGroup
      * @throws InvalidSchemaException
      */
     public function resolveQNameToElement(QName $qname)
@@ -181,6 +181,12 @@ abstract class AbstractElement
         foreach ($schema->getGroups() as $group) {
             if ($group->getName() === $qname->getName()) {
                 return $group;
+            }
+        }
+
+        foreach ($schema->getAttributeGroups() as $attributeGroup) {
+            if ($attributeGroup->getName() === $qname->getName()) {
+                return $attributeGroup;
             }
         }
 

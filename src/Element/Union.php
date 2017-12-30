@@ -6,13 +6,14 @@ namespace JDWil\Zest\Element;
 use JDWil\Zest\Element\Traits\AnyAttributeTrait;
 use JDWil\Zest\Element\Traits\IdentifiableTrait;
 use JDWil\Zest\Exception\InvalidSchemaException;
+use JDWil\Zest\XsdType\QName;
 
 class Union extends AbstractElement implements IdentifiableInterface, AnyAttributeInterface
 {
     use IdentifiableTrait, AnyAttributeTrait;
 
     /**
-     * @var string[]
+     * @var QName[]
      */
     protected $memberTypes;
 
@@ -31,9 +32,13 @@ class Union extends AbstractElement implements IdentifiableInterface, AnyAttribu
     {
         $ret = new static;
         $ret->load($e, $parent);
+        $ret->simpleTypes = [];
+        $ret->memberTypes = [];
 
         if ($memberTypes = $e->getAttribute('memberTypes')) {
-            $ret->memberTypes = explode(' ', $memberTypes);
+            foreach (explode(' ', $memberTypes) as $memberType) {
+                $ret->memberTypes[] = new QName($memberType);
+            }
         }
 
         foreach ($ret->children as $child) {
@@ -55,5 +60,21 @@ class Union extends AbstractElement implements IdentifiableInterface, AnyAttribu
         }
 
         return $ret;
+    }
+
+    /**
+     * @return QName[]
+     */
+    public function getMemberTypes(): array
+    {
+        return $this->memberTypes;
+    }
+
+    /**
+     * @return SimpleType[]
+     */
+    public function getSimpleTypes(): array
+    {
+        return $this->simpleTypes;
     }
 }

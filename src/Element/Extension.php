@@ -66,6 +66,8 @@ class Extension extends AbstractElement implements IdentifiableInterface, AnyAtt
     {
         $ret = new static;
         $ret->load($e, $parent);
+        $ret->attributes = [];
+        $ret->attributeGroups = [];
 
         foreach ($e->attributes as $key => $value) {
             switch ($key) {

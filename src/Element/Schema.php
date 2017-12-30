@@ -129,6 +129,7 @@ class Schema extends AbstractElement implements IdentifiableInterface, AnyAttrib
         $ret->complexTypes = [];
         $ret->attributeGroups = [];
         $ret->redefines = [];
+        $ret->groups = [];
         $ret->load($e, $parent);
 
         $xpath = new \DOMXPath($e->ownerDocument);

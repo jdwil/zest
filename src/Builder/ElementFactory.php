@@ -95,6 +95,12 @@ class ElementFactory
                     Reference::parent()->staticCall('writeToStream', Variable::named('stream'), Scalar::string($element->getName()))
                 );
             }
+
+            if ($simpleType = $element->getSimpleType()) {
+                $this->simpleTypeFactory->processSimpleType($simpleType, $c);
+            } else if ($complexType = $element->getComplexType()) {
+                $this->complexTypeFactory->processComplexType($complexType, $c);
+            }
         }
 
         return $c;

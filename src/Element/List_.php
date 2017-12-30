@@ -6,6 +6,7 @@ namespace JDWil\Zest\Element;
 use JDWil\Zest\Element\Traits\AnyAttributeTrait;
 use JDWil\Zest\Element\Traits\IdentifiableTrait;
 use JDWil\Zest\Exception\InvalidSchemaException;
+use JDWil\Zest\XsdType\QName;
 
 /**
  * Class List_
@@ -15,7 +16,7 @@ class List_ extends AbstractElement implements IdentifiableInterface, AnyAttribu
     use IdentifiableTrait, AnyAttributeTrait;
 
     /**
-     * @var string
+     * @var QName|null
      */
     protected $itemType;
 
@@ -36,7 +37,7 @@ class List_ extends AbstractElement implements IdentifiableInterface, AnyAttribu
         $ret->load($e, $parent);
 
         if ($itemType = $e->getAttribute('itemType')) {
-            $ret->itemType = $itemType;
+            $ret->itemType = new QName($itemType);
         }
 
         foreach ($ret->children as $child) {
@@ -66,5 +67,21 @@ class List_ extends AbstractElement implements IdentifiableInterface, AnyAttribu
         }
 
         return $ret;
+    }
+
+    /**
+     * @return QName|null
+     */
+    public function getItemType()
+    {
+        return $this->itemType;
+    }
+
+    /**
+     * @return SimpleType|null
+     */
+    public function getSimpleType()
+    {
+        return $this->simpleType;
     }
 }

@@ -20,12 +20,17 @@ use JDWil\PhpGenny\ValueObject\Visibility;
 use JDWil\Zest\Element\AbstractElement;
 use JDWil\Zest\Element\All;
 use JDWil\Zest\Element\Any;
+use JDWil\Zest\Element\AnyAttribute;
 use JDWil\Zest\Element\Attribute;
+use JDWil\Zest\Element\AttributeGroup;
 use JDWil\Zest\Element\Choice;
+use JDWil\Zest\Element\ComplexContent;
 use JDWil\Zest\Element\ComplexType;
 use JDWil\Zest\Element\Element;
+use JDWil\Zest\Element\Extension;
 use JDWil\Zest\Element\Group;
 use JDWil\Zest\Element\Sequence;
+use JDWil\Zest\Element\SimpleContent;
 use JDWil\Zest\Element\SimpleType;
 use JDWil\Zest\Exception\InvalidSchemaException;
 use JDWil\Zest\Util\NamespaceUtil;
@@ -110,6 +115,22 @@ class ComplexTypeFactory
         // @todo implement final properly
         $c->setFinal($complexType->getFinal() === '#all');
 
+        $this->processComplexType($complexType, $c);
+
+        unset($this->classStack[$c->getFqn()]);
+        $this->classes[$c->getFqn()] = $c;
+
+        return $c;
+    }
+
+    /**
+     * @param ComplexType $complexType
+     * @param Class_ $c
+     * @throws InvalidSchemaException
+     * @throws \Exception
+     */
+    public function processComplexType(ComplexType $complexType, Class_ $c)
+    {
         $validate = $this->getValidateMethod($c);
 
         $this->getWriteToStreamMethod($c)->getBody()
@@ -120,7 +141,20 @@ class ComplexTypeFactory
             )
         ;
 
-        $this->addAttributes($complexType, $c);
+        $this->addAttributes($complexType->getAttributes(), $c);
+        $this->addAttributeGroups($complexType->getAttributeGroups(), $c);
+
+        if ($anyAttribute = $complexType->getAnyAttribute()) {
+            $this->addAnyAttribute($anyAttribute, $c);
+        }
+
+        if ($simpleContent = $complexType->getSimpleContent()) {
+            $this->addSimpleContent($simpleContent, $c);
+        }
+
+        if ($complexContent = $complexType->getComplexContent()) {
+            $this->addComplexContent($complexContent, $c);
+        }
 
         $ending = $complexType->hasXmlChildren() ? '>' : '/>';
         $this->getWriteToStreamMethod($c)->getBody()->execute(
@@ -129,6 +163,14 @@ class ComplexTypeFactory
 
         if ($group = $complexType->getGroup()) {
             $this->addGroup($group, $c);
+        }
+
+        if ($all = $complexType->getAll()) {
+            $this->addAll($all, $c);
+        }
+
+        if ($choice = $complexType->getChoice()) {
+            $this->addChoice($choice, $c);
         }
 
         if ($sequence = $complexType->getSequence()) {
@@ -142,11 +184,6 @@ class ComplexTypeFactory
                 )
             );
         }
-
-        unset($this->classStack[$c->getFqn()]);
-        $this->classes[$c->getFqn()] = $c;
-
-        return $c;
     }
 
     /**
@@ -158,14 +195,167 @@ class ComplexTypeFactory
     }
 
     /**
-     * @param ComplexType $complexType
+     * @param SimpleContent $simpleContent
+     * @param Class_ $c
+     * @throws \Exception
+     */
+    private function addSimpleContent(SimpleContent $simpleContent, Class_ $c)
+    {
+        if ($restriction = $simpleContent->getRestriction()) {
+            $this->simpleTypeFactory->addRestrictions(
+                $restriction,
+                $c
+            );
+        } else if ($extension = $simpleContent->getExtension()) {
+            $this->addExtension($extension, $c);
+        }
+
+        $property = new Property('_content', Visibility::isPrivate());
+        $this->addGetter($c, $property);
+        $this->addSetter($c, $property);
+        $c->addProperty($property);
+    }
+
+    /**
+     * @param ComplexContent $complexContent
      * @param Class_ $c
      * @throws InvalidSchemaException
      * @throws \Exception
      */
-    private function addAttributes(ComplexType $complexType, Class_ $c)
+    private function addComplexContent(ComplexContent $complexContent, Class_ $c)
     {
-        foreach ($complexType->getAttributes() as $attribute) {
+        if ($restriction = $complexContent->getRestriction()) {
+            $this->simpleTypeFactory->addRestrictions(
+                $restriction,
+                $c
+            );
+        } else if ($extension = $complexContent->getExtension()) {
+            $this->addExtension($extension, $c);
+        }
+
+        $property = new Property('_content', Visibility::isPrivate());
+        $this->addGetter($c, $property);
+        $this->addSetter($c, $property);
+        $c->addProperty($property);
+    }
+
+    /**
+     * @param Extension $extension
+     * @param Class_ $c
+     * @return array
+     * @throws InvalidSchemaException
+     * @throws \Exception
+     */
+    private function addExtension(Extension $extension, Class_ $c): array
+    {
+        $elements = [];
+
+        if ($group = $extension->getGroup()) {
+            $elements = $this->addGroup($group, $c);
+        } else if ($all = $extension->getAll()) {
+            $elements = $this->addAll($all, $c);
+        } else if ($choice = $extension->getChoice()) {
+            $elements = $this->addChoice($choice, $c);
+        } else if ($sequence = $extension->getSequence()) {
+            $elements = $this->addSequence($sequence, $c);
+        }
+
+        $this->addAttributes($extension->getAttributes(), $c);
+        $this->addAttributeGroups($extension->getAttributeGroups(), $c);
+
+        if ($anyAttribute = $extension->getAnyAttribute()) {
+            $this->addAnyAttribute($anyAttribute, $c);
+        }
+
+        return $elements;
+    }
+
+    /**
+     * @param AnyAttribute $anyAttribute
+     * @param Class_ $c
+     * @throws \Exception
+     */
+    private function addAnyAttribute(AnyAttribute $anyAttribute, Class_ $c)
+    {
+        $property = new Property('extraAttributes', Visibility::isPrivate(), InternalType::array(), Type::array());
+        $c->addProperty($property);
+
+        $addAttribute = new Method('addAttribute');
+        $addAttribute->addParameter(new Parameter('key', InternalType::string()));
+        $addAttribute->addParameter(new Parameter('value', InternalType::string()));
+        $addAttribute->getBody()->execute(
+            Variable::named('this')->property('extraAttributes')->arrayIndex(Variable::named('key'))
+                ->equals(Variable::named('value'))
+        );
+
+        if ($this->config->generateFluidSetters) {
+            $addAttribute->setReturnTypes([$c->getName()]);
+            $addAttribute->getBody()
+                ->newLine()
+                ->return(Variable::named('this'));
+        }
+        $c->addMethod($addAttribute);
+
+        $getAttributes = new Method('getAttributes');
+        $getAttributes->setReturnTypes([InternalType::array()]);
+        $getAttributes->getBody()->return(Variable::named('this')->property('extraAttributes'));
+        $c->addMethod($getAttributes);
+
+        $this->getWriteToStreamMethod($c)->getBody()
+            ->foreach(Variable::named('this')->property('extraAttributes'), Variable::named('value'), Variable::named('key'))
+                ->execute(
+                    Variable::named('stream')->call(
+                        'write',
+                        Scalar::string(' ')->concat(
+                            Variable::named('key'))
+                                ->concat(Scalar::string('="'))->concat(Variable::named('value'))->concat(Scalar::string('"')
+                        )
+                    )
+                )
+            ->done()
+        ;
+    }
+
+    /**
+     * @param AttributeGroup[] $attributeGroups
+     * @param Class_ $c
+     * @throws InvalidSchemaException
+     * @throws \Exception
+     */
+    private function addAttributeGroups(array $attributeGroups, Class_ $c)
+    {
+        foreach ($attributeGroups as $attributeGroup) {
+            if ($ref = $attributeGroup->getRef()) {
+                $attributeGroup = $attributeGroup->resolveQNameToElement($ref);
+                $this->addAttributeGroup($attributeGroup, $c);
+            }
+        }
+    }
+
+    /**
+     * @param AttributeGroup $attributeGroup
+     * @param Class_ $c
+     * @throws \Exception
+     */
+    private function addAttributeGroup(AttributeGroup $attributeGroup, Class_ $c)
+    {
+        foreach ($attributeGroup->getAttributes() as $attribute) {
+            $this->addAttribute($attribute, $c);
+        }
+
+        foreach ($attributeGroup->getAttributeGroups() as $ag) {
+            $this->addAttributeGroup($ag, $c);
+        }
+    }
+
+    /**
+     * @param Attribute[] $attributes
+     * @param Class_ $c
+     * @throws \Exception
+     */
+    private function addAttributes(array $attributes, Class_ $c)
+    {
+        foreach ($attributes as $attribute) {
             if ($ref = $attribute->getRef()) {
                 $attribute = $attribute->resolveQNameToElement($ref);
             }
@@ -181,6 +371,10 @@ class ComplexTypeFactory
      */
     private function addAttribute(Attribute $attribute, Class_ $c)
     {
+        if ($ref = $attribute->getRef()) {
+            $attribute = $attribute->resolveQNameToElement($ref);
+        }
+
         $type = $this->resolveElementType($attribute);
         $defaultValue = TypeUtil::convertTypeToScalar($attribute->getType(), $attribute->getDefault());
 
@@ -190,17 +384,28 @@ class ComplexTypeFactory
         $this->addSetter($c, $property);
 
         $value = Variable::named('this')->property($property->getName());
+        if (!$type instanceof InternalType || !$type->isString()) {
+            $value = Cast::toString($value);
+        }
 
-        $this->getWriteToStreamMethod($c)->getBody()->execute(
-            Variable::named('stream')->call(
-                'write',
-                Scalar::string(' ' . $attribute->getName() . '="')->concat(
-                    Cast::toString($value)
-                )->concat(
-                    Scalar::string('"')
-                )
+        $callWriteToStream = Variable::named('stream')->call(
+            'write',
+            Scalar::string(' ' . $attribute->getName() . '="')->concat(
+                $value
+            )->concat(
+                Scalar::string('"')
             )
         );
+
+        if ($attribute->getUse() === 'required') {
+            $this->getWriteToStreamMethod($c)->getBody()->execute($callWriteToStream);
+        } else if ($attribute->getUse() === 'optional') {
+            $this->getWriteToStreamMethod($c)->getBody()
+                ->if(Type::null()->isNotIdenticalTo($value))
+                    ->execute($callWriteToStream)
+                ->done()
+            ;
+        }
     }
 
     /**
@@ -361,6 +566,8 @@ class ComplexTypeFactory
                 ->done()
             ;
         }
+
+        // @todo build a better error message
         $validate->getBody()
             ->if(Variable::named('count')->isGreaterThan(Scalar::int(1)))
                 ->throw(NewInstance::of($this->zestClassFactory->buildValidationException(), [Scalar::string('Only one element can be used in a choice')]))
@@ -409,6 +616,14 @@ class ComplexTypeFactory
     private function addElement(Element $element, Class_ $c, AbstractElement $parent = null): Property
     {
         $type = $this->resolveElementType($element);
+        $xsdType = null;
+        if (null !== $element->getType()) {
+            try {
+                $xsdType = $element->resolveQNameToElement($element->getType());
+            } catch (InvalidSchemaException $e) {
+                $xsdType = 'special';
+            }
+        }
         $propertyName = $element->getName() ?? 'property' . $this->propertyCounter++;
         $defaultValue = TypeUtil::convertTypeToScalar($element->getType(), $element->getDefault());
 
@@ -437,25 +652,48 @@ class ComplexTypeFactory
         $this->addSetter($c, $property);
 
         $tag = null === $element->getName() ? Type::null() : Scalar::string($element->getName());
+        $var = $arrayType ? Variable::named('p') : Variable::named('this')->property($propertyName);
+        if (!$arrayType && (!$type instanceof InternalType || !$type->isString())) {
+            $var = Cast::toString($var);
+        } else if ($arrayType && (!$type->getArrayType() instanceof InternalType || !$type->getArrayType()->isString())) {
+            $var = Cast::toString($var);
+        }
+
+        if ($xsdType instanceof SimpleType || 'special' === $xsdType) {
+            $write = null === $element->getName() ?
+                Variable::named('stream')->call('write', Cast::toString($var)) :
+                Variable::named('stream')->call(
+                    'writeLine',
+                    Scalar::string('<')
+                        ->concat($tag)
+                        ->concat(Scalar::string('>'))
+                        ->concat($var)
+                        ->concat(Scalar::string('</'))
+                        ->concat($tag)
+                        ->concat(Scalar::string('>'))
+                )
+            ;
+
+        } else {
+            $write = $arrayType ?
+                Variable::named('p')->call('writeToStream', Variable::named('stream'), $tag) :
+                Variable::named('this')->property($propertyName)->call('writeToStream', Variable::named('stream'), $tag)
+            ;
+        }
+
         if ($arrayType) {
             $this->getWriteToStreamMethod($c)->getBody()
                 ->foreach(Variable::named('this')->property($propertyName), Variable::named('p'))
-                    ->execute(
-                        Variable::named('p')->call('writeToStream', Variable::named('stream'), $tag)
-                    )
+                    ->execute($write)
                 ->done()
             ;
         } else {
             if (!$parent instanceof Choice && $minOccurs->getValue() > 0) {
-                $this->getWriteToStreamMethod($c)->getBody()->execute(
-                    Variable::named('this')->property($propertyName)->call('writeToStream', Variable::named('stream'), $tag)
-                );
+                $this->getWriteToStreamMethod($c)->getBody()->execute($write);
             } else {
                 $this->getWriteToStreamMethod($c)->getBody()
                     ->if(Type::null()->isNotIdenticalTo(Variable::named('this')->property($propertyName)))
-                        ->execute(
-                            Variable::named('this')->property($propertyName)->call('writeToStream', Variable::named('stream'), $tag)
-                        )
+                        ->execute($write)
                     ->done()
                 ;
             }
@@ -465,6 +703,7 @@ class ComplexTypeFactory
             $validate = $this->getValidateMethod($c);
 
             if ($min > 0) {
+                // @todo build a better error message
                 $validate->getBody()
                     ->if(ResultOf::count(Variable::named('this')->property($propertyName))->isLessThan(Scalar::int($min)))
                     ->throw(NewInstance::of($this->zestClassFactory->buildValidationException(), [Scalar::string('property is out of bounds')]))
@@ -472,6 +711,7 @@ class ComplexTypeFactory
             }
 
             if ($max !== 0) {
+                // @todo build a better error message
                 $validate->getBody()
                     ->if(ResultOf::count(Variable::named('this')->property($propertyName))->isGreaterThan(Scalar::int($max)))
                     ->throw(NewInstance::of($this->zestClassFactory->buildValidationException(), [Scalar::string('property is out of bounds')]))
@@ -522,7 +762,7 @@ class ComplexTypeFactory
      * @param Class_ $c
      * @return Method
      */
-    private function getValidateMethod(Class_ $c)
+    private function getValidateMethod(Class_ $c): Method
     {
         return $this->getMethod($c, 'validate');
     }
@@ -550,7 +790,13 @@ class ComplexTypeFactory
      */
     private function getWriteToStreamMethod(Class_ $c): Method
     {
-        return $c->getMethodByName('writeToStream');
+        $m = $c->getMethodByName('writeToStream');
+        $exception = $this->zestClassFactory->buildValidationException();
+        if (!\in_array($exception, $m->getThrows(), true)) {
+            $m->throws($exception);
+        }
+
+        return $m;
     }
 
     /**

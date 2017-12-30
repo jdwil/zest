@@ -3,9 +3,12 @@ declare(strict_types=1);
 
 namespace JDWil\Zest\Builder;
 
+use JDWil\PhpGenny\Builder\Node\AbstractNode;
 use JDWil\PhpGenny\Builder\Node\Cast;
+use JDWil\PhpGenny\Builder\Node\If_;
 use JDWil\PhpGenny\Builder\Node\Logic;
 use JDWil\PhpGenny\Builder\Node\NewInstance;
+use JDWil\PhpGenny\Builder\Node\Node;
 use JDWil\PhpGenny\Builder\Node\Reference;
 use JDWil\PhpGenny\Builder\Node\ResultOf;
 use JDWil\PhpGenny\Builder\Node\Scalar;
@@ -17,8 +20,11 @@ use JDWil\PhpGenny\Type\Parameter;
 use JDWil\PhpGenny\Type\Property;
 use JDWil\PhpGenny\ValueObject\InternalType;
 use JDWil\PhpGenny\ValueObject\Visibility;
+use JDWil\Zest\Element\AbstractElement;
+use JDWil\Zest\Element\List_;
+use JDWil\Zest\Element\Restriction;
 use JDWil\Zest\Element\SimpleType;
-use JDWil\Zest\Exception\UnimplementedException;
+use JDWil\Zest\Exception\InvalidSchemaException;
 use JDWil\Zest\Facet\Enumeration;
 use JDWil\Zest\Facet\FractionDigits;
 use JDWil\Zest\Facet\Length;
@@ -37,15 +43,12 @@ use JDWil\Zest\XsdType\QName;
 
 class SimpleTypeFactory
 {
+    const VALUE_VAR = 'value';
+
     /**
      * @var Class_[]
      */
     protected $classes;
-
-    /**
-     * @var Method
-     */
-    protected $constructor;
 
     /**
      * @var Class_
@@ -62,13 +65,9 @@ class SimpleTypeFactory
      */
     protected $zestClassFactory;
 
-    /**
-     * @var Class_
-     */
-    protected $c;
-
     public function __construct(Config $config, XsdTypeFactory $xsdFactory, ZestClassFactory $zestClassFactory)
     {
+        $this->classes = [];
         $this->xsdFactory = $xsdFactory;
         $this->zestClassFactory = $zestClassFactory;
 
@@ -83,57 +82,76 @@ class SimpleTypeFactory
         return $this->classes[$fqn] ?? false;
     }
 
+    /**
+     * @param SimpleType $simpleType
+     * @return Class_
+     * @throws \Exception
+     */
     public function buildSimpleType(SimpleType $simpleType): Class_
     {
-        $this->c = new Class_($simpleType->getName());
-        $this->c->setNamespace(NamespaceUtil::schemaToNamespace($simpleType->getSchemaNamespace()));
+        $c = new Class_($simpleType->getName());
+        $c->setNamespace(NamespaceUtil::schemaToNamespace($simpleType->getSchemaNamespace()));
 
-        if (isset($this->classes[$this->c->getFqn()])) {
-            return $this->classes[$this->c->getFqn()];
+        if (isset($this->classes[$c->getFqn()])) {
+            return $this->classes[$c->getFqn()];
         }
+        $this->classes[$c->getFqn()] = $c;
 
-        $this->c->addProperty(new Property('value', Visibility::isPrivate()));
+        $c->addProperty(new Property(self::VALUE_VAR, Visibility::isPrivate()));
 
-        $this->constructor = new Method('__construct');
-        $this->constructor->addParameter(new Parameter('value', InternalType::mixed()));
-        $this->c->addMethod($this->constructor);
+        $constructor = new Method('__construct');
+        $constructor->addParameter(new Parameter(self::VALUE_VAR, InternalType::mixed()));
+        $c->addMethod($constructor);
 
         $getValue = new Method('getValue');
-        $getValue->getBody()->return(Variable::named('this')->property('value'));
-        $this->c->addMethod($getValue);
+        $getValue->getBody()->return(Variable::named('this')->property(self::VALUE_VAR));
+        $c->addMethod($getValue);
 
-        $this->addToStringMethod();
+        $this->addToStringMethod($c);
 
-        $this->addRestrictions($simpleType);
-        $this->addList($simpleType);
-        $this->addUnion($simpleType);
+        $this->processSimpleType($simpleType, $c);
 
-        $this->constructor->getBody()->execute(Variable::named('this')->property('value')->equals(Variable::named('value')));
+        $constructor->getBody()->execute(Variable::named('this')->property(self::VALUE_VAR)->equals(Variable::named(self::VALUE_VAR)));
 
-        $this->classes[$this->c->getFqn()] = $this->c;
-
-        return $this->c;
+        return $c;
     }
 
     /**
      * @param SimpleType $simpleType
+     * @param $c
+     * @param bool $forUnion
      * @throws \Exception
      */
-    private function addRestrictions(SimpleType $simpleType)
+    public function processSimpleType(SimpleType $simpleType, $c, bool $forUnion = false)
     {
-        if (!$restriction = $simpleType->getRestriction()) {
-            return;
+        if ($restriction = $simpleType->getRestriction()) {
+            $this->addRestrictions($restriction, $c, $forUnion);
         }
+
+        $this->addList($simpleType, $c);
+        $this->addUnion($simpleType, $c);
+    }
+
+    /**
+     * @param Restriction $restriction
+     * @param Class_ $c
+     * @param bool $forUnion
+     * @throws \Exception
+     */
+    public function addRestrictions(Restriction $restriction, Class_ $c, bool $forUnion = false)
+    {
+        $validatorMethod = $c->getMethodByName('__construct');
+        $variable = Variable::named(self::VALUE_VAR);
 
         $baseQName = new QName($restriction->getBase());
         if ($type = TypeUtil::mapXsdTypeToInternalType($baseQName)) {
-            $this->getValueProperty()->setType($type);
-            $this->getValueParameter()->setType($type);
-            $this->getGetValueMethod()->setReturnTypes([$type]);
+            $this->getValueProperty($c)->setType($type);
+            $this->getValueParameter($c)->setType($type);
+            $this->getGetValueMethod($c)->setReturnTypes([$type]);
         } else if ($type = TypeUtil::mapXsdTypeToInternalXsdType($baseQName, $this->xsdFactory)) {
-            $this->getValueProperty()->setType($type);
-            $this->getValueParameter()->setType($type);
-            $this->getGetValueMethod()->setReturnTypes([$type]);
+            $this->getValueProperty($c)->setType($type);
+            $this->getValueParameter($c)->setType($type);
+            $this->getGetValueMethod($c)->setReturnTypes([$type]);
         }
 
         $enumerations = [];
@@ -141,77 +159,77 @@ class SimpleTypeFactory
         foreach ($restriction->getFacets() as $facet) {
             if ($facet instanceof Enumeration) {
                 $const = 'VALUE_' . strtoupper($facet->getValue());
-                $this->c->addConstant($const, Scalar::string($facet->getValue()));
+                $c->addConstant($const, Scalar::string($facet->getValue()));
                 $enumerations[] = $const;
 
             } else if ($facet instanceof FractionDigits) {
-                $this->constructor->getBody()
-                    ->if(Cast::toInt(Variable::named('value'))->isNotIdenticalTo(Variable::named('value')))
+                $validatorMethod->getBody()
+                    ->if(Cast::toInt($variable)->isNotIdenticalTo($variable))
                         ->execute(Variable::named('decimals')->equals(
-                            ResultOf::strlen(Variable::named('value'))
-                                ->minus(ResultOf::strpos(Variable::named('value'), Scalar::string('.')))
+                            ResultOf::strlen($variable)
+                                ->minus(ResultOf::strpos($variable, Scalar::string('.')))
                                 ->minus(Scalar::int(1)))
                         )
                     ->else()
                         ->execute(Variable::named('decimals')->equals(Scalar::int(0)))
                     ->done()
-                    ->if(Scalar::int((int) $facet->getValue())->isNotIdenticalTo(Variable::named('value')))
+                    ->if(Scalar::int((int) $facet->getValue())->isNotIdenticalTo($variable))
                         ->throw(NewInstance::of($this->validationException, [Scalar::string('value can only contain ' . $facet->getValue() . ' decimal digits')]))
                     ->done()
                     ->newLine()
                 ;
 
             } else if ($facet instanceof Length) {
-                $this->constructor->getBody()
-                    ->if(Scalar::int((int) $facet->getValue())->isNotIdenticalTo(ResultOf::strlen(Variable::named('value'))))
+                $validatorMethod->getBody()
+                    ->if(Scalar::int((int) $facet->getValue())->isNotIdenticalTo(ResultOf::strlen($variable)))
                         ->throw(NewInstance::of($this->validationException, [Scalar::string('value must be ' . $facet->getValue() . ' characters')]))
                     ->done()
                     ->newLine()
                 ;
 
             } else if ($facet instanceof MaxExclusive) {
-                $this->constructor->getBody()
-                    ->if(Variable::named('value')->isGreaterThanOrEqualTo(Scalar::int((int) $facet->getValue())))
+                $validatorMethod->getBody()
+                    ->if($variable->isGreaterThanOrEqualTo(Scalar::int((int) $facet->getValue())))
                         ->throw(NewInstance::of($this->validationException, [Scalar::string('value out of bounds')]))
                     ->done()
                     ->newLine()
                 ;
 
             } else if ($facet instanceof MaxInclusive) {
-                $this->constructor->getBody()
-                    ->if(Variable::named('value')->isGreaterThan(Scalar::int((int) $facet->getValue())))
+                $validatorMethod->getBody()
+                    ->if($variable->isGreaterThan(Scalar::int((int) $facet->getValue())))
                         ->throw(NewInstance::of($this->validationException, [Scalar::string('value out of bounds')]))
                     ->done()
                     ->newLine()
                 ;
 
             } else if ($facet instanceof MaxLength) {
-                $this->constructor->getBody()
-                    ->if(Variable::named('value')->isGreaterThan(Scalar::int((int) $facet->getValue())))
+                $validatorMethod->getBody()
+                    ->if($variable->isGreaterThan(Scalar::int((int) $facet->getValue())))
                         ->throw(NewInstance::of($this->validationException, [Scalar::string('value must be less than ' . $facet->getValue() . ' characters')]))
                     ->done()
                     ->newLine()
                 ;
 
             } else if ($facet instanceof MinExclusive) {
-                $this->constructor->getBody()
-                    ->if(Variable::named('value')->isLessThanOrEqualTo(Scalar::int((int) $facet->getValue())))
+                $validatorMethod->getBody()
+                    ->if($variable->isLessThanOrEqualTo(Scalar::int((int) $facet->getValue())))
                         ->throw(NewInstance::of($this->validationException, [Scalar::string('value out of bounds')]))
                     ->done()
                     ->newLine()
                 ;
 
             } else if ($facet instanceof MinInclusive) {
-                $this->constructor->getBody()
-                    ->if(Variable::named('value')->isLessThan(Scalar::int((int) $facet->getValue())))
+                $validatorMethod->getBody()
+                    ->if($variable->isLessThan(Scalar::int((int) $facet->getValue())))
                         ->throw(NewInstance::of($this->validationException, [Scalar::string('value out of bounds')]))
                     ->done()
                     ->newLine()
                 ;
 
             } else if ($facet instanceof MinLength) {
-                $this->constructor->getBody()
-                    ->if(Scalar::int((int) $facet->getValue())->isGreaterThan(ResultOf::strlen(Variable::named('value'))))
+                $validatorMethod->getBody()
+                    ->if(Scalar::int((int) $facet->getValue())->isGreaterThan(ResultOf::strlen($variable)))
                         ->throw(NewInstance::of($this->validationException, [Scalar::string('value must be more than ' . $facet->getValue() . ' characters')]))
                     ->done()
                     ->newLine()
@@ -219,16 +237,16 @@ class SimpleTypeFactory
 
             } else if ($facet instanceof Pattern) {
                 $pattern = str_replace(['[0-9]', '/'], ['\\d', '\\/'], $facet->getValue());
-                $this->constructor->getBody()
-                    ->if(Logic::not(ResultOf::preg_match(Scalar::string('/' . $pattern . '/'), Variable::named('value'))))
+                $validatorMethod->getBody()
+                    ->if(Logic::not(ResultOf::preg_match(Scalar::string('/' . $pattern . '/'), $variable)))
                         ->throw(NewInstance::of($this->validationException, [Scalar::string('value does not match pattern ' . $pattern)]))
                     ->done()
                     ->newLine()
                 ;
 
             } else if ($facet instanceof TotalDigits) {
-                $this->constructor->getBody()
-                    ->if(Scalar::int((int) $facet->getValue())->isNotIdenticalTo(ResultOf::preg_match_all(Scalar::string('/\d/', Variable::named('value')))))
+                $validatorMethod->getBody()
+                    ->if(Scalar::int((int) $facet->getValue())->isNotIdenticalTo(ResultOf::preg_match_all(Scalar::string('/\d/', $variable))))
                         ->throw(NewInstance::of($this->validationException, [Scalar::string('value must contain ' . $facet->getValue() . ' digits')]))
                     ->done()
                     ->newLine()
@@ -240,74 +258,185 @@ class SimpleTypeFactory
         }
 
         if (!empty($enumerations)) {
-            $this->constructor->getBody()
-                ->if(Logic::not(ResultOf::in_array(Variable::named('value'), Type::array(array_map(function (string $const) {
-                    return Reference::self()->constant($const);
-                }, $enumerations)), Type::true())))
+            if (count($enumerations) > 1) {
+                $validatorMethod->getBody()
+                    ->if(Logic::not(ResultOf::in_array($variable, Type::array(array_map(function (string $const) {
+                        return Reference::self()->constant($const);
+                    }, $enumerations)), Type::true())))
                     ->throw(NewInstance::of($this->validationException, [Scalar::string('Bad value for enumeration')]))
-                ->done()
-                ->newLine()
-            ;
+                    ->done()
+                    ->newLine();
+            } else {
+                $validatorMethod->getBody()
+                    ->if(Reference::self()->constant($enumerations[0])->isNotIdenticalTo($variable))
+                        ->throw(NewInstance::of($this->validationException, [Scalar::string('Bad value for enumeration')]))
+                    ->done()
+                    ->newLine()
+                ;
+            }
         }
-    }
 
-    private function addList(SimpleType $simpleType)
-    {
-        if (null !== $simpleType->getList()) {
-            //throw new UnimplementedException('SimpleType - List');
-        }
-    }
+        if ($forUnion) {
+            $nodes = $validatorMethod->getBody()->getNodes();
+            /** @var AbstractNode[] $ifConditions */
+            $ifConditions = [];
+            foreach ($nodes as $node) {
+                if ($node instanceof If_) {
+                    $ifConditions[] = $node->getCondition();
+                }
+            }
 
-    private function addUnion(SimpleType $simpleType)
-    {
-        if (null !== $simpleType->getUnion()) {
-            //throw new UnimplementedException('SimpleType - Union');
+            $validatorMethod->getBody()->setNodes([]);
+            $ifCondition = null;
+            for ($i = 0, $t = \count($ifConditions); $i < $t; $i++) {
+                if ($i === 0) {
+                    $ifCondition = $ifConditions[$i];
+                } else {
+                    $ifCondition = $ifCondition->booleanAnd($ifConditions[$i]);
+                }
+            }
+            $validatorMethod->getBody()->if($ifCondition)->throw(NewInstance::of($this->zestClassFactory->buildValidationException(), [Scalar::string('bad value for union')]))->done();
         }
     }
 
     /**
+     * @param SimpleType $simpleType
+     * @param Class_ $c
+     * @throws \Exception
+     */
+    private function addUnion(SimpleType $simpleType, Class_ $c)
+    {
+        if (!$union = $simpleType->getUnion()) {
+            return;
+        }
+
+        $types = [];
+        foreach ($union->getMemberTypes() as $memberType) {
+            $types[] = $this->resolveListOrUnionType($union, $memberType);
+        }
+
+        if (!empty($types)) {
+            if ($types[0] instanceof Class_) {
+                $check = Logic::not(Variable::named('v')->instanceOf($types[0]));
+            } else if ($types[0] instanceof InternalType) {
+                $check = $this->internalTypeToValidation($types[0]);
+            }
+
+            for ($i = 1, $count = \count($types); $i < $count; $i++) {
+                if ($types[$i] instanceof Class_) {
+                    $check = $check->booleanAnd(
+                        Logic::not(Variable::named('v')->instanceOf($types[$i]))
+                    );
+                } else if ($types[$i] instanceof InternalType) {
+                    $check = $check->booleanAnd($this->internalTypeToValidation($types[$i]));
+                }
+            }
+
+            $c->getMethodByName('__construct')->getBody()
+                ->foreach(Variable::named(self::VALUE_VAR), Variable::named('v'))
+                    ->if($check)
+                        ->throw(NewInstance::of($this->validationException, [Scalar::string('Bad type for union')]))
+                    ->done()
+                ->done()
+            ;
+        }
+
+        foreach ($union->getSimpleTypes() as $st) {
+            $this->processSimpleType($st, $c, $forUnion = true);
+        }
+
+        $this->makeParametersVariadic($c, $forUnion = true);
+    }
+
+    /**
+     * @param SimpleType $simpleType
+     * @param Class_ $c
+     * @throws \Exception
+     */
+    private function addList(SimpleType $simpleType, Class_ $c)
+    {
+        if (!$list = $simpleType->getList()) {
+            return;
+        }
+
+        if ($itemType = $list->getItemType()) {
+            $type = $this->resolveListOrUnionType($list, $itemType);
+            $this->getValueProperty($c)->setTypes([$type]);
+
+            if (null !== $type) {
+                $check = false;
+                if ($type instanceof Class_) {
+                    $check = Logic::not(Variable::named('v')->instanceOf($type));
+                } else {
+                    $check = $this->internalTypeToValidation($type);
+                }
+
+                if ($check) {
+                    $c->getMethodByName('__construct')->getBody()
+                        ->foreach(Variable::named(self::VALUE_VAR), Variable::named('v'))
+                            ->if($check)
+                                ->throw(NewInstance::of($this->zestClassFactory->buildValidationException(), [Scalar::string('value is wrong type')]))
+                            ->done()
+                        ->done()
+                    ;
+                }
+            }
+        } else {
+            $this->processSimpleType($list->getSimpleType(), $c);
+        }
+
+        $this->makeParametersVariadic($c);
+    }
+
+    /**
+     * @param Class_ $c
      * @return Property
      */
-    private function getValueProperty(): Property
+    private function getValueProperty(Class_ $c): Property
     {
-        foreach ($this->c->getProperties() as $property) {
-            if ($property->getName() === 'value') {
+        foreach ($c->getProperties() as $property) {
+            if ($property->getName() === self::VALUE_VAR) {
                 return $property;
             }
         }
     }
 
     /**
+     * @param Class_ $c
      * @return Parameter
      */
-    private function getValueParameter(): Parameter
+    private function getValueParameter(Class_ $c): Parameter
     {
-        foreach($this->c->getMethodByName('__construct')->getParameters() as $parameter) {
-            if ($parameter->getName() === 'value') {
+        foreach($c->getMethodByName('__construct')->getParameters() as $parameter) {
+            if ($parameter->getName() === self::VALUE_VAR) {
                 return $parameter;
             }
         }
     }
 
     /**
+     * @param Class_ $c
      * @return Method
      */
-    private function getGetValueMethod(): Method
+    private function getGetValueMethod(Class_ $c): Method
     {
-        foreach ($this->c->getMethods() as $method) {
+        foreach ($c->getMethods() as $method) {
             if ($method->getName() === 'getValue') {
                 return $method;
             }
         }
     }
 
-    private function addToStringMethod()
+    /**
+     * @param Class_ $c
+     */
+    private function addToStringMethod(Class_ $c)
     {
-        if (!$this->c->getMethodByName('__toString')) {
+        if (!$c->getMethodByName('__toString')) {
             $m = new Method('__toString');
             $m->setReturnTypes([InternalType::string()]);
-            $m->getBody()->return(Cast::toString(Variable::named('this')->property('value')));
-            $this->c->addMethod($m);
+            $m->getBody()->return(Cast::toString(Variable::named('this')->property(self::VALUE_VAR)));
+            $c->addMethod($m);
         }
     }
 
@@ -317,5 +446,70 @@ class SimpleTypeFactory
     public function getClasses(): array
     {
         return $this->classes;
+    }
+
+    /**
+     * @param AbstractElement $element
+     * @param QName $qname
+     * @return Class_|InternalType|null
+     * @throws \Exception
+     */
+    private function resolveListOrUnionType(AbstractElement $element, QName $qname)
+    {
+        if ($internalType = TypeUtil::mapXsdTypeToInternalType($qname)) {
+            return $internalType;
+        } else if ($internalType = TypeUtil::mapXsdTypeToInternalXsdType($qname, $this->xsdFactory)) {
+            return $internalType;
+        } else if ($elementType = $element->resolveQNameToElement($qname)) {
+            if ($elementType instanceof SimpleType) {
+                return $this->buildSimpleType($elementType);
+            }
+        }
+
+        throw new InvalidSchemaException('Invalid element type attribute', $element);
+    }
+
+    /**
+     * @param Class_ $c
+     * @param bool $forUnion
+     */
+    private function makeParametersVariadic(Class_ $c, bool $forUnion = false)
+    {
+        $this->getValueParameter($c)->setVariadic(true);
+        if ($forUnion) {
+            $this->getValueParameter($c)->setType(InternalType::mixed());
+            $this->getValueProperty($c)->setTypes([InternalType::array()]);
+            $this->getGetValueMethod($c)->setReturnTypes([InternalType::array()]);
+        } else {
+            $this->getGetValueMethod($c)->setReturnTypes([InternalType::arrayOf($this->getValueProperty($c)->getType())]);
+            $this->getValueParameter($c)->setType(InternalType::arrayOf($this->getValueProperty($c)->getType()));
+            $this->getValueProperty($c)->setTypes([InternalType::arrayOf($this->getValueProperty($c)->getType())]);
+        }
+        $toString = $c->getMethodByName('__toString');
+        $toString->getBody()->setNodes([]);
+        $toString->getBody()->return(ResultOf::implode(Scalar::string(' '), Variable::named('this')->property(self::VALUE_VAR)));
+    }
+
+    /**
+     * @param $type
+     * @return Node
+     */
+    private function internalTypeToValidation(InternalType $type): Node
+    {
+        if ($type->isString()) {
+            $check = Logic::not(ResultOf::is_string(Variable::named('v')));
+        } else if ($type->isInt()) {
+            $check = Logic::not(ResultOf::is_int(Variable::named('v')));
+        } else if ($type->isFloat()) {
+            $check = Logic::not(ResultOf::is_float(Variable::named('v')));
+        } else if ($type->isBool()) {
+            $check = Logic::not(ResultOf::is_bool(Variable::named('v')));
+        }
+
+        if (null === $check) {
+            var_dump($type); die();
+        }
+
+        return $check;
     }
 }
