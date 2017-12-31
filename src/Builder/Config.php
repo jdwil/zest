@@ -18,11 +18,6 @@ class Config
     public $outputDir;
 
     /**
-     * @var Class_
-     */
-    public $validationExceptionClass;
-
-    /**
      * @var string
      */
     public $xsdTypeNamespacePrefix = 'XsdType';
@@ -45,10 +40,33 @@ class Config
     public function __construct(string $namespacePrefix)
     {
         $this->namespacePrefix = $namespacePrefix;
+    }
 
-        $ec = new Class_('ValidationException');
-        $ec->setExtends('\\Exception');
-        $ec->setNamespace($namespacePrefix);
-        $this->validationExceptionClass = $ec;
+    /**
+     * @return string
+     */
+    public function getZestClassNamespace(): string
+    {
+        $parts = [];
+        if ('' !== $this->namespacePrefix) {
+            $parts[] = $this->namespacePrefix;
+        }
+        $parts[] = $this->zestNamespacePrefix;
+
+        return implode('\\', $parts);
+    }
+
+    /**
+     * @return string
+     */
+    public function getXsdClassNamespace(): string
+    {
+        $parts = [];
+        if ('' !== $this->namespacePrefix) {
+            $parts[] = $this->namespacePrefix;
+        }
+        $parts[] = $this->xsdTypeNamespacePrefix;
+
+        return implode('\\', $parts);
     }
 }

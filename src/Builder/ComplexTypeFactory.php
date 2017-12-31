@@ -99,7 +99,10 @@ class ComplexTypeFactory
         $this->propertyCounter = 1;
 
         $c = new Class_($complexType->getName());
-        $c->setNamespace(NamespaceUtil::schemaToNamespace($complexType->getSchemaNamespace()));
+        $c->setNamespace(NamespaceUtil::schemaToNamespace(
+            $complexType->getSchemaNamespace(),
+            $this->config->namespacePrefix
+        ));
         $c->implements($this->zestClassFactory->buildStreamableInterface());
         if (isset($this->classStack[$c->getFqn()])) {
             return $this->classStack[$c->getFqn()];
@@ -630,12 +633,30 @@ class ComplexTypeFactory
         $min = $max = 0;
         $arrayType = false;
         $maxOccurs = $element->getMaxOccurs();
-        if ($maxOccurs instanceof NonNegativeInteger && $maxOccurs->getValue() > 1) {
-            $max = $maxOccurs->getValue();
+        if ($maxOccurs === false || ($maxOccurs instanceof NonNegativeInteger && $maxOccurs->getValue() > 1)) {
+            $max = false === $maxOccurs ? 0 : $maxOccurs->getValue();
             $arrayType = true;
+
+            $adderParam = new Parameter($propertyName, $type);
+            $adder = new Method('add' . Inflector::classify($propertyName));
+
             $propertyName = Inflector::pluralize($propertyName);
             $type = InternalType::arrayOf($type);
             $defaultValue = Type::array();
+
+            $adder->addParameter($adderParam);
+            $adder->getBody()->execute(
+                Variable::named('this')->property($propertyName)->arrayIndex()
+                    ->equals(Variable::named($adderParam->getName()))
+            );
+            if ($this->config->generateFluidSetters) {
+                $adder->setReturnTypes([$c->getName()]);
+                $adder->getBody()
+                    ->newLine()
+                    ->return(Variable::named('this'))
+                ;
+            }
+            $c->addMethod($adder);
         }
 
         $minOccurs = $element->getMinOccurs();
@@ -644,7 +665,7 @@ class ComplexTypeFactory
         }
 
         $property = new Property($propertyName, Visibility::isPrivate(), $type, $defaultValue);
-        if ($min === 0) {
+        if ($min === 0 && (!$type instanceof InternalType || !$type->isArray())) {
             $property->addType(InternalType::null());
         }
         $c->addProperty($property);

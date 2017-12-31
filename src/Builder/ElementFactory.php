@@ -22,6 +22,11 @@ class ElementFactory
     protected $classes;
 
     /**
+     * @var Config
+     */
+    protected $config;
+
+    /**
      * @var Class_
      */
     protected $validationException;
@@ -49,10 +54,10 @@ class ElementFactory
     public function __construct(Config $config)
     {
         $this->classes = [];
-        $this->validationException = $config->validationExceptionClass;
+        $this->config = $config;
 
-        $this->xsdTypeFactory = new XsdTypeFactory($config);
         $this->zestClassFactory = new ZestClassFactory($config);
+        $this->xsdTypeFactory = new XsdTypeFactory($config, $this->zestClassFactory);
         $this->simpleTypeFactory = new SimpleTypeFactory($config, $this->xsdTypeFactory, $this->zestClassFactory);
         $this->complexTypeFactory = new ComplexTypeFactory(
             $config,
@@ -60,6 +65,8 @@ class ElementFactory
             $this->simpleTypeFactory,
             $this->zestClassFactory
         );
+
+        $this->validationException = $this->zestClassFactory->buildValidationException();
     }
 
     /**
@@ -84,7 +91,10 @@ class ElementFactory
 
         if ($name = $element->getName()) {
             $c = new Class_($name);
-            $c->setNamespace(NamespaceUtil::schemaToNamespace($element->getSchemaNamespace()));
+            $c->setNamespace(NamespaceUtil::schemaToNamespace(
+                $element->getSchemaNamespace(),
+                $this->config->namespacePrefix
+            ));
             $c->implements($this->zestClassFactory->buildStreamableInterface());
         }
 

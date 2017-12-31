@@ -53,15 +53,16 @@ class XsdTypeFactory
     /**
      * XsdTypeFactory constructor.
      * @param Config $config
+     * @param ZestClassFactory $zestClassFactory
      */
-    public function __construct(Config $config)
+    public function __construct(Config $config, ZestClassFactory $zestClassFactory)
     {
         $this->classes = [];
         $this->interfaces = [];
         $this->methods = [];
         $this->properties = [];
-        $this->namespace = $config->xsdTypeNamespacePrefix;
-        $this->exceptionClass = $config->validationExceptionClass;
+        $this->namespace = $config->getXsdClassNamespace();
+        $this->exceptionClass = $zestClassFactory->buildValidationException();
     }
 
     /**

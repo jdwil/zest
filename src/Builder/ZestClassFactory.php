@@ -49,7 +49,7 @@ class ZestClassFactory
         }
 
         $i = new Interface_('StreamableInterface');
-        $i->setNamespace($this->config->zestNamespacePrefix);
+        $i->setNamespace($this->config->getZestClassNamespace());
 
         $writeToStream = new Method('writeToStream');
         $writeToStream->addParameter(new Parameter('stream', $this->buildOutputStreamInterface()));
@@ -72,7 +72,7 @@ class ZestClassFactory
         }
 
         $i = new Interface_('OutputStreamInterface');
-        $i->setNamespace($this->config->zestNamespacePrefix);
+        $i->setNamespace($this->config->getZestClassNamespace());
 
         $write = new Method('write');
         $write->addParameter(new Parameter('data', InternalType::string()));
@@ -97,7 +97,7 @@ class ZestClassFactory
         }
 
         $c = new Class_('ValidationException');
-        $c->setNamespace($this->config->zestNamespacePrefix . '\\Exception');
+        $c->setNamespace($this->config->getZestClassNamespace() . '\\Exception');
         $c->setExtends('\\Exception');
 
         $this->classes['validationException'] = $c;

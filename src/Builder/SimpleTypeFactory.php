@@ -51,6 +51,11 @@ class SimpleTypeFactory
     protected $classes;
 
     /**
+     * @var Config
+     */
+    protected $config;
+
+    /**
      * @var Class_
      */
     protected $validationException;
@@ -68,6 +73,7 @@ class SimpleTypeFactory
     public function __construct(Config $config, XsdTypeFactory $xsdFactory, ZestClassFactory $zestClassFactory)
     {
         $this->classes = [];
+        $this->config = $config;
         $this->xsdFactory = $xsdFactory;
         $this->zestClassFactory = $zestClassFactory;
 
@@ -90,7 +96,10 @@ class SimpleTypeFactory
     public function buildSimpleType(SimpleType $simpleType): Class_
     {
         $c = new Class_($simpleType->getName());
-        $c->setNamespace(NamespaceUtil::schemaToNamespace($simpleType->getSchemaNamespace()));
+        $c->setNamespace(NamespaceUtil::schemaToNamespace(
+            $simpleType->getSchemaNamespace(),
+            $this->config->namespacePrefix
+        ));
 
         if (isset($this->classes[$c->getFqn()])) {
             return $this->classes[$c->getFqn()];

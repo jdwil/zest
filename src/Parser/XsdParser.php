@@ -97,4 +97,12 @@ class XsdParser
 
         return $this->parseDocument($document);
     }
+
+    /**
+     * @return SchemaCollection
+     */
+    public function getSchemas(): SchemaCollection
+    {
+        return $this->schemas;
+    }
 }
