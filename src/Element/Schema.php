@@ -187,7 +187,7 @@ class Schema extends AbstractElement implements IdentifiableInterface, AnyAttrib
         }
 
         foreach ($ret->children as $child) {
-            if ($child instanceof \DOMText) {
+            if (!$ret->isElementType($child)) {
                 continue;
             }
 

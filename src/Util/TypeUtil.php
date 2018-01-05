@@ -19,11 +19,12 @@ class TypeUtil
     {
         $ns = $qname->getNamespace();
         // @todo not sure if manually checking 'xsd' and 'xs' is correct
-        if ($ns !== null && $ns !== 'xsd' && $ns !== 'xs') {
+        if ($ns !== null && $ns !== 'xsd' && $ns !== 'xs' && $ns !== 'xml') {
             return null;
         }
 
         switch ($qname->getName()) {
+            case 'space':
             case 'string':
             case 'ID':
             case 'IDREF':

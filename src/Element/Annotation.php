@@ -48,6 +48,10 @@ class Annotation extends AbstractElement implements IdentifiableInterface, AnyAt
         }
 
         foreach ($ret->children as $child) {
+            if ($child instanceof \DOMText) {
+                continue;
+            }
+
             switch ($child->localName) {
                 case 'appinfo':
                     $ret->appinfos[] = Appinfo::fromDomElement($child, $ret);

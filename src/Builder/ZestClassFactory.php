@@ -104,6 +104,11 @@ class ZestClassFactory
         return $c;
     }
 
+    public function buildCollection(): Class_
+    {
+
+    }
+
     /**
      * @return Class_[]
      */

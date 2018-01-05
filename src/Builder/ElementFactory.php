@@ -13,6 +13,7 @@ use JDWil\Zest\Element\Element;
 use JDWil\Zest\Element\SimpleType;
 use JDWil\Zest\Util\NamespaceUtil;
 use JDWil\Zest\Util\TypeUtil;
+use Symfony\Component\Console\Output\OutputInterface;
 
 class ElementFactory
 {
@@ -51,7 +52,7 @@ class ElementFactory
      */
     protected $zestClassFactory;
 
-    public function __construct(Config $config)
+    public function __construct(Config $config, OutputInterface $output)
     {
         $this->classes = [];
         $this->config = $config;
@@ -63,7 +64,9 @@ class ElementFactory
             $config,
             $this->xsdTypeFactory,
             $this->simpleTypeFactory,
-            $this->zestClassFactory
+            $this->zestClassFactory,
+            $this,
+            $output
         );
 
         $this->validationException = $this->zestClassFactory->buildValidationException();
@@ -78,14 +81,14 @@ class ElementFactory
     public function buildElement(Element $element): Class_
     {
         if ($type = $element->getType()) {
-            $base = $element->resolveQNameToElement($type);
+            $base = $this->complexTypeFactory->resolveElementType($element);
 
             if ($base instanceof ComplexType) {
                 $baseClass = $this->complexTypeFactory->buildComplexType($base);
             } else if ($base instanceof SimpleType) {
                 $baseClass = $this->simpleTypeFactory->buildSimpleType($base);
-            } else if (!$baseType = TypeUtil::mapXsdTypeToInternalType($type)) {
-                $baseClass = TypeUtil::mapXsdTypeToInternalXsdType($type, $this->xsdTypeFactory);
+            } else if ($base instanceof Class_ || $base instanceof Interface_) {
+                $baseClass = $base;
             }
         }
 
@@ -96,6 +99,12 @@ class ElementFactory
                 $this->config->namespacePrefix
             ));
             $c->implements($this->zestClassFactory->buildStreamableInterface());
+
+            if (isset($this->classes[$c->getFqn()])) {
+                return $this->classes[$c->getFqn()];
+            }
+
+            $this->classes[$c->getFqn()] = $c;
         }
 
         if (isset($c)) {

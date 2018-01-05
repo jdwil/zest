@@ -18,6 +18,14 @@ class NamespaceUtil
             return ucwords($name);
         }, $parts);
 
+        for ($i = 0, $c = \count($parts); $i < $c; $i++) {
+            if (!preg_match('/^[a-zA-Z_\x7f-\xff]/', $parts[$i])) {
+                $parts[$i] = 'v' . $parts[$i];
+            }
+
+            $parts[$i] = preg_replace('/[^a-zA-Z0-9_\x7f-\xff]/', '', $parts[$i]);
+        }
+
         if ('' !== $prefix) {
             array_unshift($parts, $prefix);
         }

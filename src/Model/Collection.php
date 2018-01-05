@@ -8,10 +8,23 @@ namespace JDWil\Zest\Model;
  */
 class Collection
 {
+    const TYPE_NORMAL = 0;
+    const TYPE_CHOICE = 1;
+
+    /**
+     * @var int
+     */
+    private $collectionType;
+
     /**
      * @var string
      */
     private $type;
+
+    /**
+     * @var string[]
+     */
+    private $types;
 
     /**
      * @var array
@@ -39,8 +52,27 @@ class Collection
     public static function of(string $type, int $minSize = 0, int $maxSize = null): Collection
     {
         $ret = new static;
+        $ret->collectionType = self::TYPE_NORMAL;
         $ret->items = [];
         $ret->type = $type;
+        $ret->minSize = $minSize;
+        $ret->maxSize = $maxSize;
+
+        return $ret;
+    }
+
+    /**
+     * @param array $types
+     * @param int $minSize
+     * @param int|null $maxSize
+     * @return Collection
+     */
+    public static function ofChoices(array $types, int $minSize = 0, int $maxSize = null): Collection
+    {
+        $ret = new static;
+        $ret->collectionType = self::TYPE_CHOICE;
+        $ret->items = [];
+        $ret->types = $types;
         $ret->minSize = $minSize;
         $ret->maxSize = $maxSize;
 
@@ -55,7 +87,7 @@ class Collection
     {
         $this->throwIfNotValid($item);
 
-        $this->items = $item;
+        $this->items[] = $item;
     }
 
     /**
@@ -112,8 +144,22 @@ class Collection
      */
     private function throwIfNotValid($item)
     {
-        if (!$item instanceof $this->type) {
+        if (self::TYPE_NORMAL === $this->collectionType && !$item instanceof $this->type) {
             throw new \InvalidArgumentException('Wrong type for collection of ' . $this->type);
+        }
+
+        if (self::TYPE_CHOICE === $this->collectionType) {
+            $valid = false;
+            foreach ($this->types as $type) {
+                if ($item instanceof $type) {
+                    $valid = true;
+                    break;
+                }
+            }
+
+            if (!$valid) {
+                throw new \InvalidArgumentException('Wrong type for collection of ' . implode(', ', $this->types));
+            }
         }
     }
 }

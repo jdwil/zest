@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace JDWil\Zest\Builder;
 
 use JDWil\Zest\Model\SchemaCollection;
+use Symfony\Component\Console\Output\OutputInterface;
 
 class ClassGenerator
 {
@@ -12,8 +13,8 @@ class ClassGenerator
      */
     protected $elementFactory;
 
-    public function __construct(Config $config) {
-        $this->elementFactory = new ElementFactory($config);
+    public function __construct(Config $config, OutputInterface $output) {
+        $this->elementFactory = new ElementFactory($config, $output);
     }
 
     public function buildClasses(SchemaCollection $schemas)

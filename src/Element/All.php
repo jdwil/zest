@@ -34,6 +34,7 @@ class All extends AbstractElement implements IdentifiableInterface, AnyAttribute
      * @param AbstractElement $parent
      * @return mixed
      * @throws \JDWil\Zest\Exception\InvalidSchemaException
+     * @throws \JDWil\Zest\Exception\ValidationException
      */
     public static function fromDomElement(\DOMElement $e, AbstractElement $parent = null)
     {
@@ -69,6 +70,10 @@ class All extends AbstractElement implements IdentifiableInterface, AnyAttribute
         }
 
         foreach ($ret->children as $child) {
+            if ($child instanceof \DOMText) {
+                continue;
+            }
+
             switch ($child->localName) {
                 case 'annotation':
                     // handled in parent

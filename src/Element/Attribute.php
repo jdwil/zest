@@ -121,6 +121,10 @@ class Attribute extends AbstractElement implements IdentifiableInterface, AnyAtt
         }
 
         foreach ($ret->children as $child) {
+            if ($child instanceof \DOMText) {
+                continue;
+            }
+
             switch ($child->localName) {
                 case 'annotation':
                     // handled in parent

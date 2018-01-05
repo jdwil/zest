@@ -1,0 +1,17 @@
+#!/usr/bin/php
+<?php
+
+use Symfony\Component\Console\Application;
+use JDWil\Zest\Command\GenerateCommand;
+
+$rootDir = realpath(dirname($_SERVER['SCRIPT_FILENAME'], 3));
+if (is_file($autoload = $rootDir . '/vendor/autoload.php')) {
+    require $autoload;
+}
+
+$application = new Application('zest');
+
+$generateCommand = new GenerateCommand();
+$application->add($generateCommand);
+
+$application->run();

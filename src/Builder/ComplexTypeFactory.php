@@ -36,8 +36,10 @@ use JDWil\Zest\Exception\InvalidSchemaException;
 use JDWil\Zest\Util\NamespaceUtil;
 use JDWil\Zest\Util\TypeUtil;
 use JDWil\Zest\XsdType\NonNegativeInteger;
+use JDWil\Zest\XsdType\QName;
+use Symfony\Component\Console\Output\OutputInterface;
 
-class ComplexTypeFactory
+class ComplexTypeFactory extends AbstractTypeFactory
 {
     /**
      * @var Class_[]
@@ -65,26 +67,36 @@ class ComplexTypeFactory
     protected $xsdTypeFactory;
 
     /**
+     * @var ElementFactory
+     */
+    protected $elementFactory;
+
+    /**
      * @var ZestClassFactory
      */
     protected $zestClassFactory;
 
     /**
-     * @var array
+     * @var OutputInterface
      */
-    protected $classStack;
+    protected $output;
 
     public function __construct(
         Config $config,
         XsdTypeFactory $xsdTypeFactory,
         SimpleTypeFactory $simpleTypeFactory,
-        ZestClassFactory $zestClassFactory
+        ZestClassFactory $zestClassFactory,
+        ElementFactory $elementFactory,
+        OutputInterface $output
     ) {
+        parent::__construct($output);
+
         $this->classes = [];
         $this->classStack = [];
         $this->config = $config;
         $this->simpleTypeFactory = $simpleTypeFactory;
         $this->xsdTypeFactory = $xsdTypeFactory;
+        $this->elementFactory = $elementFactory;
         $this->zestClassFactory = $zestClassFactory;
     }
 
@@ -98,30 +110,35 @@ class ComplexTypeFactory
     {
         $this->propertyCounter = 1;
 
+        $this->debug('buildComplexType called', $complexType->getName());
+
         $c = new Class_($complexType->getName());
         $c->setNamespace(NamespaceUtil::schemaToNamespace(
             $complexType->getSchemaNamespace(),
             $this->config->namespacePrefix
         ));
-        $c->implements($this->zestClassFactory->buildStreamableInterface());
-        if (isset($this->classStack[$c->getFqn()])) {
-            return $this->classStack[$c->getFqn()];
-        } else {
-            $this->classStack[$c->getFqn()] = $c;
-        }
 
+        $this->debug('FQN is ' . $c->getFqn(), $c->getName());
+
+        $c->implements($this->zestClassFactory->buildStreamableInterface());
         if (isset($this->classes[$c->getFqn()])) {
+            $this->debug('Class already created... returning that', $c->getName());
+
             return $this->classes[$c->getFqn()];
         }
+
+        $this->classes[$c->getFqn()] = $c;
 
         $c->setAbstract($complexType->isAbstract());
         // @todo implement final properly
         $c->setFinal($complexType->getFinal() === '#all');
+        $this->debug('Abstract: ' . (string) $c->isAbstract() . ' Final: ' . (string) $c->isFinal(), $c->getName());
 
         $this->processComplexType($complexType, $c);
 
-        unset($this->classStack[$c->getFqn()]);
-        $this->classes[$c->getFqn()] = $c;
+        $this->pruneUnusuedValidationCalls($c);
+
+        $this->debug('Done building class', $c->getName());
 
         return $c;
     }
@@ -134,53 +151,68 @@ class ComplexTypeFactory
      */
     public function processComplexType(ComplexType $complexType, Class_ $c)
     {
+        $cn = $c->getName();
         $validate = $this->getValidateMethod($c);
 
+        $this->debug('Adding call to validate in writeToStream method', $cn);
+
         $this->getWriteToStreamMethod($c)->getBody()
-            ->execute(Variable::named('this')->call('validate'))
+            ->execute(Variable::named('this')->call($validate))
             ->newLine()
             ->execute(
                 Variable::named('stream')->call('write', Scalar::string('<')->concat(Variable::named('tag')))
             )
         ;
 
+        $this->debug('Adding attributes', $cn);
         $this->addAttributes($complexType->getAttributes(), $c);
+
+        $this->debug('Adding attribute groups', $cn);
         $this->addAttributeGroups($complexType->getAttributeGroups(), $c);
 
         if ($anyAttribute = $complexType->getAnyAttribute()) {
+            $this->debug('Adding any attribute', $cn);
             $this->addAnyAttribute($anyAttribute, $c);
         }
 
-        if ($simpleContent = $complexType->getSimpleContent()) {
-            $this->addSimpleContent($simpleContent, $c);
-        }
-
-        if ($complexContent = $complexType->getComplexContent()) {
-            $this->addComplexContent($complexContent, $c);
-        }
-
         $ending = $complexType->hasXmlChildren() ? '>' : '/>';
+        $this->debug('Ending tag: ' . $ending, $cn);
         $this->getWriteToStreamMethod($c)->getBody()->execute(
             Variable::named('stream')->call('writeLine', Scalar::string($ending))
         );
 
+        if ($simpleContent = $complexType->getSimpleContent()) {
+            $this->debug('Adding simple content', $cn);
+            $this->addSimpleContent($simpleContent, $c);
+        }
+
+        if ($complexContent = $complexType->getComplexContent()) {
+            $this->debug('Adding complex content', $cn);
+            $this->addComplexContent($complexContent, $c);
+        }
+
         if ($group = $complexType->getGroup()) {
+            $this->debug('Adding group', $cn);
             $this->addGroup($group, $c);
         }
 
         if ($all = $complexType->getAll()) {
+            $this->debug('Adding all', $cn);
             $this->addAll($all, $c);
         }
 
         if ($choice = $complexType->getChoice()) {
+            $this->debug('Adding choice', $cn);
             $this->addChoice($choice, $c);
         }
 
         if ($sequence = $complexType->getSequence()) {
+            $this->debug('Adding sequence', $cn);
             $this->addSequence($sequence, $c);
         }
 
         if ($complexType->hasXmlChildren()) {
+            $this->debug('Element has xml children. Adding code to print child content', $cn);
             $this->getWriteToStreamMethod($c)->getBody()->execute(
                 Variable::named('stream')->call(
                     'writeLine', Scalar::string('</')->concat(Variable::named('tag')->concat(Scalar::string('>')))
@@ -204,19 +236,31 @@ class ComplexTypeFactory
      */
     private function addSimpleContent(SimpleContent $simpleContent, Class_ $c)
     {
+        $cn = $c->getName();
+
         if ($restriction = $simpleContent->getRestriction()) {
+            $this->debug('Adding restriction', $cn);
             $this->simpleTypeFactory->addRestrictions(
                 $restriction,
                 $c
             );
         } else if ($extension = $simpleContent->getExtension()) {
+            $this->debug('Adding extension', $cn);
             $this->addExtension($extension, $c);
         }
 
+        $this->debug('Adding class property: _content', $cn);
         $property = new Property('_content', Visibility::isPrivate());
         $this->addGetter($c, $property);
         $this->addSetter($c, $property);
         $c->addProperty($property);
+
+        $this->debug('Adding writeToStream code', $cn);
+        $this->getWriteToStreamMethod($c)->getBody()
+            ->if(Type::null()->isNotIdenticalTo(Variable::named('this')->property('_content')))
+                ->execute(Variable::named('stream')->call('writeLine', Variable::named('this')->property('_content')))
+            ->done()
+        ;
     }
 
     /**
@@ -227,19 +271,31 @@ class ComplexTypeFactory
      */
     private function addComplexContent(ComplexContent $complexContent, Class_ $c)
     {
+        $cn = $c->getName();
+
         if ($restriction = $complexContent->getRestriction()) {
+            $this->debug('Adding restriction', $cn);
             $this->simpleTypeFactory->addRestrictions(
                 $restriction,
                 $c
             );
         } else if ($extension = $complexContent->getExtension()) {
+            $this->debug('Adding extension', $cn);
             $this->addExtension($extension, $c);
         }
 
+        $this->debug('Adding class property: _content', $cn);
         $property = new Property('_content', Visibility::isPrivate());
         $this->addGetter($c, $property);
         $this->addSetter($c, $property);
         $c->addProperty($property);
+
+        $this->debug('Adding writeToStream code', $cn);
+        $this->getWriteToStreamMethod($c)->getBody()
+            ->if(Type::null()->isNotIdenticalTo(Variable::named('this')->property('_content')))
+            ->execute(Variable::named('stream')->call('writeLine', Variable::named('this')->property('_content')))
+            ->done()
+        ;
     }
 
     /**
@@ -251,15 +307,20 @@ class ComplexTypeFactory
      */
     private function addExtension(Extension $extension, Class_ $c): array
     {
+        $cn = $c->getName();
         $elements = [];
 
         if ($group = $extension->getGroup()) {
+            $this->debug('Adding group', $cn);
             $elements = $this->addGroup($group, $c);
         } else if ($all = $extension->getAll()) {
+            $this->debug('Adding all', $cn);
             $elements = $this->addAll($all, $c);
         } else if ($choice = $extension->getChoice()) {
+            $this->debug('Adding choice', $cn);
             $elements = $this->addChoice($choice, $c);
         } else if ($sequence = $extension->getSequence()) {
+            $this->debug('Adding sequence', $cn);
             $elements = $this->addSequence($sequence, $c);
         }
 
@@ -267,6 +328,7 @@ class ComplexTypeFactory
         $this->addAttributeGroups($extension->getAttributeGroups(), $c);
 
         if ($anyAttribute = $extension->getAnyAttribute()) {
+            $this->debug('Adding any attribute', $cn);
             $this->addAnyAttribute($anyAttribute, $c);
         }
 
@@ -280,9 +342,13 @@ class ComplexTypeFactory
      */
     private function addAnyAttribute(AnyAttribute $anyAttribute, Class_ $c)
     {
+        $cn = $c->getName();
+
+        $this->debug('Adding class property: extraAttributes. Visibility: private, type: [], default: []', $cn);
         $property = new Property('extraAttributes', Visibility::isPrivate(), InternalType::array(), Type::array());
         $c->addProperty($property);
 
+        $this->debug('Adding class method: addAttribute(string $key, string $value)', $cn);
         $addAttribute = new Method('addAttribute');
         $addAttribute->addParameter(new Parameter('key', InternalType::string()));
         $addAttribute->addParameter(new Parameter('value', InternalType::string()));
@@ -292,6 +358,7 @@ class ComplexTypeFactory
         );
 
         if ($this->config->generateFluidSetters) {
+            $this->debug('Making method fluid', $cn);
             $addAttribute->setReturnTypes([$c->getName()]);
             $addAttribute->getBody()
                 ->newLine()
@@ -299,11 +366,13 @@ class ComplexTypeFactory
         }
         $c->addMethod($addAttribute);
 
+        $this->debug('Adding class method: getAttributes(): array', $cn);
         $getAttributes = new Method('getAttributes');
         $getAttributes->setReturnTypes([InternalType::array()]);
         $getAttributes->getBody()->return(Variable::named('this')->property('extraAttributes'));
         $c->addMethod($getAttributes);
 
+        $this->debug('Updating writeToStream to print all extra attributes', $cn);
         $this->getWriteToStreamMethod($c)->getBody()
             ->foreach(Variable::named('this')->property('extraAttributes'), Variable::named('value'), Variable::named('key'))
                 ->execute(
@@ -327,9 +396,17 @@ class ComplexTypeFactory
      */
     private function addAttributeGroups(array $attributeGroups, Class_ $c)
     {
+        $cn = $c->getName();
+
         foreach ($attributeGroups as $attributeGroup) {
             if ($ref = $attributeGroup->getRef()) {
+                $this->debug('Resolving reference for attribute group: ' . (string) $ref, $cn);
                 $attributeGroup = $attributeGroup->resolveQNameToElement($ref);
+                $this->debug('Got ' . $attributeGroup->getName(), $cn);
+                $this->debug('Adding attribute group', $cn);
+                $this->addAttributeGroup($attributeGroup, $c);
+            } else {
+                $this->debug('Adding attribute group', $cn);
                 $this->addAttributeGroup($attributeGroup, $c);
             }
         }
@@ -342,11 +419,15 @@ class ComplexTypeFactory
      */
     private function addAttributeGroup(AttributeGroup $attributeGroup, Class_ $c)
     {
+        $cn = $c->getName();
+
         foreach ($attributeGroup->getAttributes() as $attribute) {
+            $this->debug('Adding attribute', $cn);
             $this->addAttribute($attribute, $c);
         }
 
         foreach ($attributeGroup->getAttributeGroups() as $ag) {
+            $this->debug('Adding attribute group', $cn);
             $this->addAttributeGroup($ag, $c);
         }
     }
@@ -359,10 +440,7 @@ class ComplexTypeFactory
     private function addAttributes(array $attributes, Class_ $c)
     {
         foreach ($attributes as $attribute) {
-            if ($ref = $attribute->getRef()) {
-                $attribute = $attribute->resolveQNameToElement($ref);
-            }
-
+            $this->debug('Adding attribute', $c->getName());
             $this->addAttribute($attribute, $c);
         }
     }
@@ -374,13 +452,29 @@ class ComplexTypeFactory
      */
     private function addAttribute(Attribute $attribute, Class_ $c)
     {
+        $cn = $c->getName();
+
         if ($ref = $attribute->getRef()) {
-            $attribute = $attribute->resolveQNameToElement($ref);
+            $this->debug('Resolving reference for attribute: ' . (string) $ref, $cn);
+            try {
+                $attribute = $attribute->resolveQNameToElement($ref);
+                $this->debug('Got ' . $attribute->getName(), $cn);
+            } catch (InvalidSchemaException $e) {
+                $this->debug('Failed to resolve attribute reference. Assuming standard type.', $cn);
+            }
+        }
+
+        if (null === $attribute->getName()) {
+            $this->debug('Attribute name is null... bailing out', $cn);
+            return;
         }
 
         $type = $this->resolveElementType($attribute);
+        $this->debug('Type: ' . (string) $type, $cn);
         $defaultValue = TypeUtil::convertTypeToScalar($attribute->getType(), $attribute->getDefault());
+        $this->debug('Default value: ' . (string) $defaultValue, $cn);
 
+        $this->debug('Adding class property: ' . $attribute->getName(), $cn);
         $property = new Property($attribute->getName(), Visibility::isPrivate(), $type, $defaultValue);
         $c->addProperty($property);
         $this->addGetter($c, $property);
@@ -401,8 +495,10 @@ class ComplexTypeFactory
         );
 
         if ($attribute->getUse() === 'required') {
+            $this->debug('Adding write call in writeToStream method', $cn);
             $this->getWriteToStreamMethod($c)->getBody()->execute($callWriteToStream);
         } else if ($attribute->getUse() === 'optional') {
+            $this->debug('Use is optional... adding write call inside if statement', $cn);
             $this->getWriteToStreamMethod($c)->getBody()
                 ->if(Type::null()->isNotIdenticalTo($value))
                     ->execute($callWriteToStream)
@@ -420,15 +516,22 @@ class ComplexTypeFactory
      */
     private function addGroup(Group $group, Class_ $c): array
     {
+        $cn = $c->getName();
+
         if ($ref = $group->getRef()) {
+            $this->debug('Resolving group reference: ' . (string) $ref, $cn);
             $group = $group->resolveQNameToElement($ref);
+            $this->debug('Got ' . $group->getName(), $cn);
         }
 
         if ($sequence = $group->getSequence()) {
+            $this->debug('Adding sequence', $cn);
             return $this->addSequence($sequence, $c);
         } else if ($choice = $group->getChoice()) {
+            $this->debug('Adding choice', $cn);
             return $this->addChoice($choice, $c);
         } else if ($all = $group->getAll()) {
+            $this->debug('Adding all', $cn);
             return $this->addAll($all, $c);
         }
     }
@@ -442,8 +545,10 @@ class ComplexTypeFactory
      */
     private function addAll(All $all, Class_ $c): array
     {
+        $cn = $c->getName();
         $properties = [];
         foreach ($all->getElements() as $element) {
+            $this->debug('Adding element', $cn);
             $properties[] = $this->addElement($element, $c);
         }
 
@@ -459,6 +564,9 @@ class ComplexTypeFactory
      */
     private function addAny(Any $any, Class_ $c): array
     {
+        $cn = $c->getName();
+
+        $this->debug('Adding class property: extraElements', $cn);
         $property = new Property(
             'extraElements',
             Visibility::isPrivate(),
@@ -467,6 +575,7 @@ class ComplexTypeFactory
         );
         $c->addProperty($property);
 
+        $this->debug('Adding class method: addElement(StreamableInterface $element', $cn);
         $m = new Method('addElement');
         $m->addParameter(new Parameter('element', $this->zestClassFactory->buildStreamableInterface()));
         $m->getBody()
@@ -476,16 +585,19 @@ class ComplexTypeFactory
         ;
 
         if ($this->config->generateFluidSetters) {
+            $this->debug('Making adder fluid', $cn);
             $m->setReturnTypes([$c->getName()]);
             $m->getBody()->newLine()->return(Variable::named('this'));
         }
         $c->addMethod($m);
 
+        $this->debug('Adding class method: getElements(): array');
         $m = new Method('getElements');
         $m->setReturnTypes([InternalType::arrayOf($this->zestClassFactory->buildStreamableInterface())]);
         $m->getBody()->return(Variable::named('this')->property('extraElements'));
         $c->addMethod($m);
 
+        $this->debug('Updating writeToStream method', $cn);
         $this->getWriteToStreamMethod($c)->getBody()
             ->foreach(Variable::named('this')->property('extraElements'), Variable::named('element'))
                 ->execute(Variable::named('element')->call('writeToStream', Variable::named('stream')))
@@ -496,6 +608,7 @@ class ComplexTypeFactory
         $max = $any->getMaxOccurs();
 
         if ($min > 0) {
+            $this->debug('Min > 0... adding validation', $cn);
             $this->getValidateMethod($c)->getBody()
                 ->if(Scalar::int($min)->isGreaterThan(ResultOf::count(Variable::named('this')->property('extraElements'))))
                     ->throw(NewInstance::of($this->zestClassFactory->buildValidationException(), [Scalar::string('Not enough extra elements')]))
@@ -504,6 +617,7 @@ class ComplexTypeFactory
         }
 
         if (false !== $max) {
+            $this->debug('Max is bounded... adding validation', $cn);
             $this->getValidateMethod($c)->getBody()
                 ->if(Scalar::int($max->getValue())->isLessThan(ResultOf::count(Variable::named('this')->property('extraElements'))))
                     ->throw(NewInstance::of($this->zestClassFactory->buildValidationException(), [Scalar::string('Too many extra elements')]))
@@ -618,7 +732,25 @@ class ComplexTypeFactory
      */
     private function addElement(Element $element, Class_ $c, AbstractElement $parent = null): Property
     {
+        $cn = $c->getName();
+
+        if ($ref = $element->getRef()) {
+            $this->debug('Resolving element reference: ' . (string) $ref, $cn);
+            $parent = $element->resolveQNameToElement($ref);
+            $this->debug('Got ' . $parent->getName(), $cn);
+            $element = $this->mergeElements($parent, $element);
+        }
+
+        while ($substitutionGroup = $element->getSubstitutionGroup()) {
+            $this->debug('Resolve element substitution group: ' . (string) $substitutionGroup, $cn);
+            $parent = $element->resolveQNameToElement($substitutionGroup);
+            $this->debug('Got ' . $parent->getName(), $cn);
+            $element = $this->mergeElements($parent, $element);
+        }
+
         $type = $this->resolveElementType($element);
+        $this->debug('Element Type: ' . (string) $type, $cn);
+
         $xsdType = null;
         if (null !== $element->getType()) {
             try {
@@ -627,19 +759,28 @@ class ComplexTypeFactory
                 $xsdType = 'special';
             }
         }
+        $this->debug('XSD Type: ' . (string) $xsdType, $cn);
+
         $propertyName = $element->getName() ?? 'property' . $this->propertyCounter++;
+        $this->debug('Property name: ' . $propertyName, $cn);
+
         $defaultValue = TypeUtil::convertTypeToScalar($element->getType(), $element->getDefault());
+        $this->debug('Default: ' . (string) $defaultValue, $cn);
 
         $min = $max = 0;
         $arrayType = false;
         $maxOccurs = $element->getMaxOccurs();
         if ($maxOccurs === false || ($maxOccurs instanceof NonNegativeInteger && $maxOccurs->getValue() > 1)) {
+            $this->debug('Max occurs > 1', $cn);
+
             $max = false === $maxOccurs ? 0 : $maxOccurs->getValue();
             $arrayType = true;
 
+            $this->debug('Adding class method: ' . 'add' . Inflector::classify($propertyName), $cn);
             $adderParam = new Parameter($propertyName, $type);
             $adder = new Method('add' . Inflector::classify($propertyName));
 
+            $this->debug('Changing property name to ' . Inflector::pluralize($propertyName), $cn);
             $propertyName = Inflector::pluralize($propertyName);
             $type = InternalType::arrayOf($type);
             $defaultValue = Type::array();
@@ -661,9 +802,11 @@ class ComplexTypeFactory
 
         $minOccurs = $element->getMinOccurs();
         if ($minOccurs instanceof NonNegativeInteger && $minOccurs->getValue() > 0) {
+            $this->debug('Min occurs is > 0', $cn);
             $min = $minOccurs->getValue();
         }
 
+        $this->debug('Adding class property: ' . $propertyName, $cn);
         $property = new Property($propertyName, Visibility::isPrivate(), $type, $defaultValue);
         if ($min === 0 && (!$type instanceof InternalType || !$type->isArray())) {
             $property->addType(InternalType::null());
@@ -672,6 +815,7 @@ class ComplexTypeFactory
         $this->addGetter($c, $property);
         $this->addSetter($c, $property);
 
+        $this->debug('Adding writeToStream code', $cn);
         $tag = null === $element->getName() ? Type::null() : Scalar::string($element->getName());
         $var = $arrayType ? Variable::named('p') : Variable::named('this')->property($propertyName);
         if (!$arrayType && (!$type instanceof InternalType || !$type->isString())) {
@@ -696,9 +840,14 @@ class ComplexTypeFactory
             ;
 
         } else {
+            $methodToCall = $type instanceof Class_ ?
+                $type->getMethodByName('writeToStream') :
+                'writeToStream'
+            ;
+
             $write = $arrayType ?
-                Variable::named('p')->call('writeToStream', Variable::named('stream'), $tag) :
-                Variable::named('this')->property($propertyName)->call('writeToStream', Variable::named('stream'), $tag)
+                Variable::named('p')->call($methodToCall, Variable::named('stream'), $tag) :
+                Variable::named('this')->property($propertyName)->call($methodToCall, Variable::named('stream'), $tag)
             ;
         }
 
@@ -709,7 +858,7 @@ class ComplexTypeFactory
                 ->done()
             ;
         } else {
-            if (!$parent instanceof Choice && $minOccurs->getValue() > 0) {
+            if (!$parent instanceof Choice && $min > 0) {
                 $this->getWriteToStreamMethod($c)->getBody()->execute($write);
             } else {
                 $this->getWriteToStreamMethod($c)->getBody()
@@ -720,10 +869,13 @@ class ComplexTypeFactory
             }
         }
 
+        $this->debug('Adding validation code', $cn);
+
         if ($arrayType) {
             $validate = $this->getValidateMethod($c);
 
             if ($min > 0) {
+                $this->debug('Min > 0... adding validation', $cn);
                 // @todo build a better error message
                 $validate->getBody()
                     ->if(ResultOf::count(Variable::named('this')->property($propertyName))->isLessThan(Scalar::int($min)))
@@ -732,6 +884,7 @@ class ComplexTypeFactory
             }
 
             if ($max !== 0) {
+                $this->debug('Max is bounded... adding validation', $cn);
                 // @todo build a better error message
                 $validate->getBody()
                     ->if(ResultOf::count(Variable::named('this')->property($propertyName))->isGreaterThan(Scalar::int($max)))
@@ -745,13 +898,16 @@ class ComplexTypeFactory
 
     /**
      * @param AbstractElement $element
+     * @param QName|null $type
      * @return bool|Class_|InternalType|null
      * @throws InvalidSchemaException
      * @throws \Exception
      */
-    private function resolveElementType(AbstractElement $element)
+    public function resolveElementType(AbstractElement $element, QName $type = null)
     {
-        if (!$type = $element->getType()) {
+        if (null === $type && !$type = $element->getType()) {
+            $this->debug('Element has no type property and none provided... returning false');
+
             return false;
         }
 
@@ -811,13 +967,22 @@ class ComplexTypeFactory
      */
     private function getWriteToStreamMethod(Class_ $c): Method
     {
-        $m = $c->getMethodByName('writeToStream');
-        $exception = $this->zestClassFactory->buildValidationException();
-        if (!\in_array($exception, $m->getThrows(), true)) {
-            $m->throws($exception);
-        }
+        return $c->getMethodByName('writeToStream');
+    }
 
-        return $m;
+    /**
+     * @param Class_ $c
+     */
+    private function pruneUnusuedValidationCalls(Class_ $c)
+    {
+        $validate = $this->getValidateMethod($c);
+        if (empty($validate->getBody()->getNodes())) {
+            $c->removeMethod($validate);
+            $write = $this->getWriteToStreamMethod($c);
+            $nodes = $write->getBody()->getNodes();
+            array_splice($nodes, 0, 2);
+            $write->getBody()->setNodes($nodes);
+        }
     }
 
     /**
@@ -850,5 +1015,29 @@ class ComplexTypeFactory
         }
 
         $c->addMethod($m);
+    }
+
+    /**
+     * @param Element $e1
+     * @param Element $e2
+     * @return Element
+     */
+    private function mergeElements(Element $e1, Element $e2)
+    {
+        $ret = clone $e1;
+
+        if (null !== $e2->getMinOccurs()) {
+            $ret->setMinOccurs($e2->getMinOccurs());
+        }
+
+        if (null !== $e2->getMaxOccurs()) {
+            $ret->setMaxOccurs($e2->getMaxOccurs());
+        }
+
+        if (null !== $e2->getName()) {
+            $ret->setName($e2->getName());
+        }
+
+        return $ret;
     }
 }

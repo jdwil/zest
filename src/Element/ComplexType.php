@@ -298,6 +298,8 @@ class ComplexType extends AbstractElement implements IdentifiableInterface, AnyA
         return null !== $this->group ||
             null !== $this->all ||
             null !== $this->choice ||
-            null !== $this->sequence;
+            null !== $this->sequence ||
+            null !== $this->simpleContent ||
+            null !== $this->complexContent;
     }
 }

@@ -42,10 +42,10 @@ class SchemaCollection
 
     /**
      * @param string $xmlns
-     * @return Schema
+     * @return Schema|false
      * @throws InvalidSchemaException
      */
-    public function getSchemaByXmlns(string $xmlns): Schema
+    public function getSchemaByXmlns(string $xmlns)
     {
         foreach ($this->schemas as $schema) {
             if ($schema->getXmlns() === $xmlns) {
@@ -53,6 +53,7 @@ class SchemaCollection
             }
         }
 
+        return false;
         throw new InvalidSchemaException('Unable to locate schema with xmlns: ' . $xmlns);
     }
 }

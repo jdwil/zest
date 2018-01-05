@@ -38,15 +38,53 @@ class Restriction extends AbstractElement implements IdentifiableInterface, AnyA
     protected $simpleType;
 
     /**
+     * @var Group|null
+     */
+    protected $group;
+
+    /**
+     * @var All|null
+     */
+    protected $all;
+
+    /**
+     * @var Choice|null
+     */
+    protected $choice;
+
+    /**
+     * @var Sequence|null
+     */
+    protected $sequence;
+
+    /**
+     * @var Attribute[]
+     */
+    protected $attributes;
+
+    /**
+     * @var AttributeGroup[]
+     */
+    protected $attributeGroups;
+
+    /**
+     * @var AnyAttribute|null
+     */
+    protected $anyAttribute;
+
+    /**
      * @param \DOMElement $e
      * @param AbstractElement|null $parent
      * @return Restriction
      * @throws InvalidSchemaException
+     * @throws \JDWil\Zest\Exception\ValidationException
      */
     public static function fromDomElement(\DOMElement $e, AbstractElement $parent = null): Restriction
     {
         $ret = new static;
         $ret->facets = [];
+        $ret->attributes = [];
+        $ret->attributeGroups = [];
         $ret->load($e, $parent);
 
         foreach ($e->attributes as $key => $value) {
@@ -64,7 +102,7 @@ class Restriction extends AbstractElement implements IdentifiableInterface, AnyA
         }
 
         foreach ($ret->children as $child) {
-            if ($child instanceof \DOMText) {
+            if (!$ret->isElementType($child)) {
                 continue;
             }
 
@@ -125,6 +163,34 @@ class Restriction extends AbstractElement implements IdentifiableInterface, AnyA
                     $ret->facets[] = new Pattern($child->getAttribute('value'));
                     break;
 
+                case 'group':
+                    $ret->group = Group::fromDomElement($child, $ret);
+                    break;
+
+                case 'all':
+                    $ret->all = All::fromDomElement($child, $ret);
+                    break;
+
+                case 'choice':
+                    $ret->choice = Choice::fromDomElement($child, $ret);
+                    break;
+
+                case 'sequence':
+                    $ret->sequence = Sequence::fromDomElement($child, $ret);
+                    break;
+
+                case 'attribute':
+                    $ret->attributes[] = Attribute::fromDomElement($child, $ret);
+                    break;
+
+                case 'attributeGroup':
+                    $ret->attributeGroups[] = AttributeGroup::fromDomElement($child, $ret);
+                    break;
+
+                case 'anyAttribute':
+                    $ret->anyAttribute = AnyAttribute::fromDomElement($child, $ret);
+                    break;
+
                 default:
                     throw new InvalidSchemaException('Bad child in restriction: ' . $child->localName, $e);
             }
@@ -151,5 +217,61 @@ class Restriction extends AbstractElement implements IdentifiableInterface, AnyA
     public function getSimpleType()
     {
         return $this->simpleType;
+    }
+
+    /**
+     * @return Group|null
+     */
+    public function getGroup()
+    {
+        return $this->group;
+    }
+
+    /**
+     * @return All|null
+     */
+    public function getAll()
+    {
+        return $this->all;
+    }
+
+    /**
+     * @return Choice|null
+     */
+    public function getChoice()
+    {
+        return $this->choice;
+    }
+
+    /**
+     * @return Sequence|null
+     */
+    public function getSequence()
+    {
+        return $this->sequence;
+    }
+
+    /**
+     * @return Attribute[]
+     */
+    public function getAttributes(): array
+    {
+        return $this->attributes;
+    }
+
+    /**
+     * @return AttributeGroup[]
+     */
+    public function getAttributeGroups(): array
+    {
+        return $this->attributeGroups;
+    }
+
+    /**
+     * @return AnyAttribute|null
+     */
+    public function getAnyAttribute()
+    {
+        return $this->anyAttribute;
     }
 }

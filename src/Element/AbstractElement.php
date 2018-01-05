@@ -140,7 +140,7 @@ abstract class AbstractElement
 
     /**
      * @param QName $qname
-     * @return ComplexType|SimpleType|Attribute|Group|AttributeGroup
+     * @return ComplexType|SimpleType|Attribute|Group|AttributeGroup|Element
      * @throws InvalidSchemaException
      */
     public function resolveQNameToElement(QName $qname)
@@ -190,7 +190,18 @@ abstract class AbstractElement
             }
         }
 
+        foreach ($schema->getElements() as $element) {
+            if ($element->getName() === $qname->getName()) {
+                return $element;
+            }
+        }
+
         throw new InvalidSchemaException('Could not resolve QName: ' . print_r($qname, true), $this->domElement);
+    }
+
+    public function __toString(): string
+    {
+        return $this->tagName;
     }
 
     /**
@@ -321,5 +332,14 @@ abstract class AbstractElement
     public function getParentElement(): AbstractElement
     {
         return $this->parentElement;
+    }
+
+    /**
+     * @param $type
+     * @return bool
+     */
+    protected function isElementType($type): bool
+    {
+        return $type instanceof \DOMElement;
     }
 }

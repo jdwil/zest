@@ -50,18 +50,25 @@ class XsdParser
     {
         /** @var \DOMElement $child */
         foreach ($doc->childNodes as $child) {
+            if ($child instanceof \DOMDocumentType) {
+                // @todo do we need to do anything with these?
+                continue;
+            }
+
             switch ($child->localName) {
                 case 'schema':
                     $schema = Schema::fromDomElement($child);
                     $this->schemas->addSchema($schema);
                     foreach ($schema->getImports() as $import) {
-                        $childSchema = $this->processImport($import);
-                        $schema->resolveSchemaAlias($childSchema);
+                        if ($childSchema = $this->processImport($import)) {
+                            $schema->resolveSchemaAlias($childSchema);
+                        }
                     }
 
                     return $schema;
 
                 default:
+                    var_dump($child);
                     throw new InvalidSchemaException('Bad element in document: ' . $child->localName);
                     break;
             }
@@ -70,23 +77,30 @@ class XsdParser
 
     /**
      * @param Import $import
-     * @return Schema
+     * @return Schema|false
      * @throws \Exception
      */
-    private function processImport(Import $import): Schema
+    private function processImport(Import $import)
     {
         $location = (string) $import->getSchemaLocation();
+        if (empty($location)) {
+            return false;
+        }
 
         if (\in_array($location, $this->processedSchemas, true)) {
             return $this->schemas->getSchemaByXmlns((string) $import->getNamespace());
         }
         $this->processedSchemas[] = $location;
 
-        $baseUri = $import->getBaseUri();
-        $pieces = explode('/', $baseUri);
-        array_pop($pieces);
-        $pieces[] = $location;
-        $uri = implode('/', $pieces);
+        if (stripos($location, 'http') === 0) {
+            $uri = $location;
+        } else {
+            $baseUri = $import->getBaseUri();
+            $pieces = explode('/', $baseUri);
+            array_pop($pieces);
+            $pieces[] = $location;
+            $uri = implode('/', $pieces);
+        }
 
         $document = new \DOMDocument('1.0', 'UTF-8');
         if (!$document->load($uri)) {

@@ -32,7 +32,7 @@ class Element extends AbstractElement implements IdentifiableInterface, AnyAttri
     protected $type;
 
     /**
-     * @var string|null
+     * @var QName|null
      */
     protected $substitutionGroup;
 
@@ -150,7 +150,7 @@ class Element extends AbstractElement implements IdentifiableInterface, AnyAttri
                     break;
 
                 case 'substitutionGroup':
-                    $ret->substitutionGroup = $value->value;
+                    $ret->substitutionGroup = new QName($value->value);
                     break;
 
                 case 'default':
@@ -294,7 +294,7 @@ class Element extends AbstractElement implements IdentifiableInterface, AnyAttri
     }
 
     /**
-     * @return null|string
+     * @return null|QName
      */
     public function getSubstitutionGroup()
     {
@@ -411,5 +411,29 @@ class Element extends AbstractElement implements IdentifiableInterface, AnyAttri
     public function getKeyrefs(): array
     {
         return $this->keyrefs;
+    }
+
+    /**
+     * @param false|NonNegativeInteger|null $maxOccurs
+     */
+    public function setMaxOccurs($maxOccurs)
+    {
+        $this->maxOccurs = $maxOccurs;
+    }
+
+    /**
+     * @param NonNegativeInteger|null $minOccurs
+     */
+    public function setMinOccurs(NonNegativeInteger $minOccurs)
+    {
+        $this->minOccurs = $minOccurs;
+    }
+
+    /**
+     * @param null|string $name
+     */
+    public function setName(string $name)
+    {
+        $this->name = $name;
     }
 }
