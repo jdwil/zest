@@ -85,6 +85,106 @@ class XsdTypeFactory
      * @return Class_
      * @throws \Exception
      */
+    public function buildXString(): Class_
+    {
+        if ($c = $this->getClass('xstring')) {
+            return $c;
+        }
+
+        $c = new Class_('XString');
+        $c->setNamespace($this->namespace);
+        $c->setExtends($this->buildAbstractStringType());
+        $c->addMethod($this->buildToStringMethod());
+
+        $constructor = new Method('__construct');
+        $constructor->addParameter(new Parameter('value', InternalType::string()));
+        $constructor->getBody()->execute(Variable::named('this')->property('value')->equals(Variable::named('value')));
+        $c->addMethod($constructor);
+
+        $this->classes['xstring'] = $c;
+
+        return $c;
+    }
+
+    /**
+     * @return Class_
+     * @throws \Exception
+     */
+    public function buildXInt(): Class_
+    {
+        if ($c = $this->getClass('xint')) {
+            return $c;
+        }
+
+        $c = new Class_('XInt');
+        $c->setNamespace($this->namespace);
+        $c->setExtends($this->buildAbstractIntegerType());
+        $c->addMethod($this->buildToStringMethod());
+
+        $constructor = new Method('__construct');
+        $constructor->addParameter(new Parameter('value', InternalType::int()));
+        $constructor->getBody()->execute(Variable::named('this')->property('value')->equals(Variable::named('value')));
+        $c->addMethod($constructor);
+
+        $this->classes['xint'] = $c;
+
+        return $c;
+    }
+
+    /**
+     * @return Class_
+     * @throws \Exception
+     */
+    public function buildXFloat(): Class_
+    {
+        if ($c = $this->getClass('xfloat')) {
+            return $c;
+        }
+
+        $c = new Class_('XFloat');
+        $c->setNamespace($this->namespace);
+        $c->setExtends($this->buildAbstractFloatType());
+        $c->addMethod($this->buildToStringMethod());
+
+        $constructor = new Method('__construct');
+        $constructor->addParameter(new Parameter('value', InternalType::float()));
+        $constructor->getBody()->execute(Variable::named('this')->property('value')->equals(Variable::named('value')));
+        $c->addMethod($constructor);
+
+        $this->classes['xfloat'] = $c;
+
+        return $c;
+    }
+
+    /**
+     * @return Class_
+     * @throws \Exception
+     */
+    public function buildXBool(): Class_
+    {
+        if ($c = $this->getClass('xbool')) {
+            return $c;
+        }
+
+        $c = new Class_('XBool');
+        $c->setNamespace($this->namespace);
+        $c->setExtends($this->buildAbstractBoolType());
+        $c->addMethod($this->buildToStringMethod());
+
+        $constructor = new Method('__construct');
+        $constructor->addParameter(new Parameter('value', InternalType::bool()));
+        $constructor->getBody()->execute(Variable::named('this')->property('value')->equals(Variable::named('value')));
+        $c->addMethod($constructor);
+
+        $this->classes['xbool'] = $c;
+
+        return $c;
+    }
+
+    /**
+     * @return Class_
+     * @throws \Exception
+     */
     public function buildAnyUri(): Class_
     {
         if ($c = $this->getClass('anyUri')) {
@@ -1107,6 +1207,50 @@ class XsdTypeFactory
     }
 
     /**
+     * @return Class_
+     * @throws \Exception
+     */
+    protected function buildAbstractFloatType(): Class_
+    {
+        if (isset($this->classes['abstractFloatType'])) {
+            return $this->classes['abstractFloatType'];
+        }
+
+        $c = new Class_('AbstractFloatType');
+        $c->setNamespace($this->namespace);
+        $c->setAbstract(true);
+        $c->implements($this->buildFloatTypeInterface());
+        $c->addProperty($this->buildValueProperty(InternalType::float()));
+        $c->addMethod($this->buildGetValueMethod(InternalType::float()));
+
+        $this->classes['abstractFloatType'] = $c;
+
+        return $c;
+    }
+
+    /**
+     * @return Class_
+     * @throws \Exception
+     */
+    protected function buildAbstractBoolType(): Class_
+    {
+        if (isset($this->classes['abstractBoolType'])) {
+            return $this->classes['abstractBoolType'];
+        }
+
+        $c = new Class_('AbstractBoolType');
+        $c->setNamespace($this->namespace);
+        $c->setAbstract(true);
+        $c->implements($this->buildBoolTypeInterface());
+        $c->addProperty($this->buildValueProperty(InternalType::bool()));
+        $c->addMethod($this->buildGetValueMethod(InternalType::bool()));
+
+        $this->classes['abstractBoolType'] = $c;
+
+        return $c;
+    }
+
+    /**
      * @return Interface_
      * @throws \Exception
      */
@@ -1122,6 +1266,24 @@ class XsdTypeFactory
     protected function buildStringTypeInterface(): Interface_
     {
         return $this->buildInternalTypeInterface('StringTypeInterface', InternalType::string());
+    }
+
+    /**
+     * @return Interface_
+     * @throws \Exception
+     */
+    protected function buildFloatTypeInterface(): Interface_
+    {
+        return $this->buildInternalTypeInterface('FloatTypeInterface', InternalType::float());
+    }
+
+    /**
+     * @return Interface_
+     * @throws \Exception
+     */
+    protected function buildBoolTypeInterface(): Interface_
+    {
+        return $this->buildInternalTypeInterface('BoolTypeInterface', InternalType::bool());
     }
 
     /**

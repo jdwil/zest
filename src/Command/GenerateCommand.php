@@ -12,6 +12,7 @@ use JDWil\Zest\Exception\InvalidSchemaException;
 use JDWil\Zest\Exception\ValidationException;
 use JDWil\Zest\Model\SchemaCollection;
 use JDWil\Zest\Parser\XsdParser;
+use JDWil\Zest\Util\NamespaceUtil;
 use PhpParser\PrettyPrinter\Standard;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\Input;
@@ -68,6 +69,7 @@ class GenerateCommand extends Command
 
         $files = $this->getInputFiles();
         $schemas = $this->runParser($files);
+
         $classes = $this->generateClasses($schemas);
         if (!$input->getOption('no-output')) {
             $this->writeClasses($classes);

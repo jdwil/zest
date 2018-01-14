@@ -3,91 +3,81 @@ declare(strict_types=1);
 
 namespace JDWil\Zest\Model;
 
+use JDWil\ExcelStream\Excel\Zest\OutputStreamInterface;
+use JDWil\ExcelStream\Excel\Zest\StreamableInterface;
+
 /**
  * Class Collection
  */
-class Collection
+class Collection implements StreamableInterface
 {
-    const TYPE_NORMAL = 0;
-    const TYPE_CHOICE = 1;
-
     /**
-     * @var int
-     */
-    private $collectionType;
-
-    /**
-     * @var string
+     * @var string|Choice|Sequence
      */
     private $type;
 
     /**
-     * @var string[]
-     */
-    private $types;
-
-    /**
      * @var array
      */
-    private $items;
+    protected $items;
 
     /**
      * @var int
      */
-    private $minSize;
+    protected $minSize;
 
     /**
-     * @var int|null
+     * @var int
      */
-    private $maxSize;
-
-    private function __construct() {}
+    protected $maxSize;
 
     /**
-     * @param string $type
+     * Collection constructor.
+     * @param string|Choice|Sequence $type
      * @param int $minSize
-     * @param int|null $maxSize
-     * @return Collection
+     * @param int $maxSize
      */
-    public static function of(string $type, int $minSize = 0, int $maxSize = null): Collection
+    public function __construct($type, int $minSize, int $maxSize)
     {
-        $ret = new static;
-        $ret->collectionType = self::TYPE_NORMAL;
-        $ret->items = [];
-        $ret->type = $type;
-        $ret->minSize = $minSize;
-        $ret->maxSize = $maxSize;
-
-        return $ret;
+        $this->items = [];
+        $this->minSize = $minSize;
+        $this->maxSize = $maxSize;
+        $this->type = $type;
     }
 
     /**
-     * @param array $types
-     * @param int $minSize
-     * @param int|null $maxSize
-     * @return Collection
+     * @return array
      */
-    public static function ofChoices(array $types, int $minSize = 0, int $maxSize = null): Collection
+    public function all(): array
     {
-        $ret = new static;
-        $ret->collectionType = self::TYPE_CHOICE;
-        $ret->items = [];
-        $ret->types = $types;
-        $ret->minSize = $minSize;
-        $ret->maxSize = $maxSize;
-
-        return $ret;
+        return $this->items;
     }
 
     /**
      * @param $item
-     * @throws \InvalidArgumentException
      */
     public function add($item)
     {
-        $this->throwIfNotValid($item);
+        $type = \get_class($item);
 
-        $this->items[] = $item;
+        if (\is_string($this->getType())) {
+            if ($this->getType() === $type && $this->hasRoom()) {
+                $this->items[] = $item;
+                return;
+            }
+        } else {
+            if (\get_class($this->getType()) === $type && $this->hasRoom()) {
+                $this->items[] = $item;
+                return;
+            }
+        }
+
+        if ($container = $this->findEmptySlot($this->items, $type, $this)) {
+            $container->add($item);
+            return;
+        }
+
+        throw new \InvalidArgumentException('No place to put item');
     }
 
     /**
@@ -139,27 +129,117 @@ class Collection
     }
 
     /**
+     * @return string|Choice|Sequence
+     */
+    public function getType()
+    {
+        return $this->type;
+    }
+
+    /**
+     * @return bool
+     */
+    public function hasRoom(): bool
+    {
+        return -1 === $this->maxSize || $this->count() < $this->maxSize;
+    }
+
+    /**
      * @param $item
      * @throws \InvalidArgumentException
      */
     private function throwIfNotValid($item)
     {
-        if (self::TYPE_NORMAL === $this->collectionType && !$item instanceof $this->type) {
-            throw new \InvalidArgumentException('Wrong type for collection of ' . $this->type);
+        $e = new \InvalidArgumentException('Item must be of type ' . $this->type);
+        if (\is_string($this->type) && !$item instanceof $this->type) {
+            throw $e;
+        } else if (\get_class($this->type) !== \get_class($item)) {
+            throw $e;
+        }
+    }
+
+    /**
+     * @param OutputStreamInterface $stream
+     * @param string|null $tag
+     * @param bool $rootElement
+     */
+    public function writeToStream(OutputStreamInterface $stream, string $tag = null, bool $rootElement = false)
+    {
+        foreach ($this->items as $item) {
+            if ($item instanceof StreamableInterface) {
+                $item->writeToStream($stream, $this->name);
+            }
+        }
+    }
+
+    /**
+     * @param array $items
+     * @param string $type
+     * @param mixed $parent
+     * @return bool|mixed
+     */
+    private function findEmptySlot(array $items, string $type, $parent)
+    {
+        if ($parent instanceof self &&
+            !\is_string($parent->getType()) &&
+            $parent->hasRoom() &&
+            $parent->getType()->allowsType($type)
+        ) {
+            $ret = clone $parent->getType();
+            $parent->add($ret);
+
+            return $ret;
         }
 
-        if (self::TYPE_CHOICE === $this->collectionType) {
-            $valid = false;
-            foreach ($this->types as $type) {
-                if ($item instanceof $type) {
-                    $valid = true;
-                    break;
+        foreach ($items as $item) {
+            if ($item instanceof self) {
+                if ($item->getType() === $type && $item->hasRoom()) {
+                    return $item;
+                }
+
+                if ($ret = $this->findEmptySlot($item->all(), $type, $item)) {
+                    return $ret;
+                }
+            } else if ($item instanceof Choice) {
+                if ($item->allowsType($type)) {
+                    if (!$item->selected()) {
+                        return $item;
+                    }
+
+                    if ($parent instanceof self && $parent->hasRoom()) {
+                        $item = clone $item;
+                        $parent->add($item);
+
+                        return $item;
+                    }
+                }
+
+                if ($ret = $this->findEmptySlot([$item->get()], $type, $item)) {
+                    return $ret;
+                }
+            } else if ($item instanceof Sequence) {
+                if ($item->allowsType($type)) {
+                    if (!$item->getItemByType($type)) {
+                        return $item;
+                    }
+
+                    if ($parent instanceof self && $parent->hasRoom()) {
+                        $item = clone $item;
+                        $parent->add($item);
+
+                        return $item;
+                    }
+                }
+                if ($item->allowsType($type) && !$item->getItemByType($type)) {
+                    return $item;
+                }
+
+                if ($ret = $this->findEmptySlot($item->all(), $type, $item)) {
+                    return $ret;
                 }
             }
-
-            if (!$valid) {
-                throw new \InvalidArgumentException('Wrong type for collection of ' . implode(', ', $this->types));
-            }
         }
+
+        return false;
     }
 }

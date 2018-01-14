@@ -4,14 +4,17 @@ declare(strict_types=1);
 namespace JDWil\Zest\Builder;
 
 use Doctrine\Common\Inflector\Inflector;
+use JDWil\PhpGenny\Builder\Node\AbstractNode;
 use JDWil\PhpGenny\Builder\Node\Cast;
 use JDWil\PhpGenny\Builder\Node\Logic;
 use JDWil\PhpGenny\Builder\Node\NewInstance;
+use JDWil\PhpGenny\Builder\Node\Reference;
 use JDWil\PhpGenny\Builder\Node\ResultOf;
 use JDWil\PhpGenny\Builder\Node\Scalar;
 use JDWil\PhpGenny\Builder\Node\Type;
 use JDWil\PhpGenny\Builder\Node\Variable;
 use JDWil\PhpGenny\Type\Class_;
+use JDWil\PhpGenny\Type\Interface_;
 use JDWil\PhpGenny\Type\Method;
 use JDWil\PhpGenny\Type\Parameter;
 use JDWil\PhpGenny\Type\Property;
@@ -77,6 +80,11 @@ class ComplexTypeFactory extends AbstractTypeFactory
     protected $zestClassFactory;
 
     /**
+     * @var array
+     */
+    protected $collectionStack;
+
+    /**
      * @var OutputInterface
      */
     protected $output;
@@ -92,7 +100,7 @@ class ComplexTypeFactory extends AbstractTypeFactory
         parent::__construct($output);
 
         $this->classes = [];
-        $this->classStack = [];
+        $this->collectionStack = [];
         $this->config = $config;
         $this->simpleTypeFactory = $simpleTypeFactory;
         $this->xsdTypeFactory = $xsdTypeFactory;
@@ -159,9 +167,16 @@ class ComplexTypeFactory extends AbstractTypeFactory
         $this->getWriteToStreamMethod($c)->getBody()
             ->execute(Variable::named('this')->call($validate))
             ->newLine()
+            ->if(Variable::named('rootElement'))
+                ->execute(Variable::named('stream')->call('writeLine', Scalar::string('<?xml version="1.0" encoding="UTF-8"?>')))
+            ->done()
+            ->newLine()
             ->execute(
                 Variable::named('stream')->call('write', Scalar::string('<')->concat(Variable::named('tag')))
             )
+            ->if(Variable::named('rootElement'))
+                ->execute(Variable::named('stream')->call('write', Scalar::string(' xmlns="' . $complexType->getSchemaNamespace() . '"')))
+            ->done()
         ;
 
         $this->debug('Adding attributes', $cn);
@@ -301,27 +316,25 @@ class ComplexTypeFactory extends AbstractTypeFactory
     /**
      * @param Extension $extension
      * @param Class_ $c
-     * @return array
      * @throws InvalidSchemaException
      * @throws \Exception
      */
-    private function addExtension(Extension $extension, Class_ $c): array
+    private function addExtension(Extension $extension, Class_ $c)
     {
         $cn = $c->getName();
-        $elements = [];
 
         if ($group = $extension->getGroup()) {
             $this->debug('Adding group', $cn);
-            $elements = $this->addGroup($group, $c);
+            $this->addGroup($group, $c);
         } else if ($all = $extension->getAll()) {
             $this->debug('Adding all', $cn);
-            $elements = $this->addAll($all, $c);
+            $this->addAll($all, $c);
         } else if ($choice = $extension->getChoice()) {
             $this->debug('Adding choice', $cn);
-            $elements = $this->addChoice($choice, $c);
+            $this->addChoice($choice, $c);
         } else if ($sequence = $extension->getSequence()) {
             $this->debug('Adding sequence', $cn);
-            $elements = $this->addSequence($sequence, $c);
+            $this->addSequence($sequence, $c);
         }
 
         $this->addAttributes($extension->getAttributes(), $c);
@@ -331,8 +344,6 @@ class ComplexTypeFactory extends AbstractTypeFactory
             $this->debug('Adding any attribute', $cn);
             $this->addAnyAttribute($anyAttribute, $c);
         }
-
-        return $elements;
     }
 
     /**
@@ -471,7 +482,11 @@ class ComplexTypeFactory extends AbstractTypeFactory
 
         $type = $this->resolveElementType($attribute);
         $this->debug('Type: ' . (string) $type, $cn);
-        $defaultValue = TypeUtil::convertTypeToScalar($attribute->getType(), $attribute->getDefault());
+        $defaultValue = TypeUtil::convertTypeToScalar(
+            $attribute->getType(),
+            $attribute->getDefault(),
+            $this->xsdTypeFactory
+        );
         $this->debug('Default value: ' . (string) $defaultValue, $cn);
 
         $this->debug('Adding class property: ' . $attribute->getName(), $cn);
@@ -510,11 +525,10 @@ class ComplexTypeFactory extends AbstractTypeFactory
     /**
      * @param Group $group
      * @param Class_ $c
-     * @return array
      * @throws InvalidSchemaException
      * @throws \Exception
      */
-    private function addGroup(Group $group, Class_ $c): array
+    private function addGroup(Group $group, Class_ $c)
     {
         $cn = $c->getName();
 
@@ -526,13 +540,13 @@ class ComplexTypeFactory extends AbstractTypeFactory
 
         if ($sequence = $group->getSequence()) {
             $this->debug('Adding sequence', $cn);
-            return $this->addSequence($sequence, $c);
+            $this->addSequence($sequence, $c);
         } else if ($choice = $group->getChoice()) {
             $this->debug('Adding choice', $cn);
-            return $this->addChoice($choice, $c);
+            $this->addChoice($choice, $c);
         } else if ($all = $group->getAll()) {
             $this->debug('Adding all', $cn);
-            return $this->addAll($all, $c);
+            $this->addAll($all, $c);
         }
     }
 
@@ -631,109 +645,164 @@ class ComplexTypeFactory extends AbstractTypeFactory
     /**
      * @param Choice $choice
      * @param Class_ $c
-     * @return array
+     * @param AbstractNode|null $collection
      * @throws InvalidSchemaException
      * @throws \Exception
      */
-    private function addChoice(Choice $choice, Class_ $c): array
+    private function addChoice(Choice $choice, Class_ $c, AbstractNode $collection = null)
     {
-        $elements = $arrays = $toCheck = [];
+        //$needsValidation = false;
+        $min = $choice->getMinOccurs()->getValue();
+        $max = $choice->getMaxOccurs() ?
+            $choice->getMaxOccurs()->getValue() :
+            -1
+        ;
+
+        $choiceClass = $this->zestClassFactory->buildChoice();
+        $collectionClass = $this->zestClassFactory->buildCollection();
+
+        if (null === $collection) {
+            $collection = Variable::named('this')->property('_choices');
+        } else {
+            $collection = $collection->call('getCollectionByName', Scalar::string('_choices'));
+        }
+        $collection = Variable::named('this')->property('_choices');
+
+        $this->pushCollectionStack([
+            'type' => 'choice',
+            'selector' => $collection,
+            'elements' => []
+        ]);
+
         foreach ($choice->getElements() as $element) {
-            $e = $this->addElement($element, $c, $choice);
-            $elements[] = $e;
-            $toCheck[] = $e;
+            $this->addElement($element, $c);
         }
 
         foreach ($choice->getGroups() as $group) {
-            $a = $this->addGroup($group, $c);
-            $arrays[] = $a;
-            $toCheck[] = end($a);
+            $this->addGroup($group, $c);
         }
 
         foreach ($choice->getChoices() as $ch) {
-            $a = $this->addChoice($ch, $c);
-            $arrays[] = $a;
-            $toCheck[] = end($a);
+            $this->addChoice($ch, $c);
         }
 
         foreach ($choice->getSequences() as $sequence) {
-            $a = $this->addSequence($sequence, $c);
-            $arrays[] = $a;
-            $toCheck[] = end($a);
+            $this->addSequence($sequence, $c);
         }
 
         foreach ($choice->getAny() as $any) {
-            $a = $this->addAny($any, $c);
-            $arrays[] = $a;
-            $toCheck[] = end($a);
+            $this->addAny($any, $c);
         }
 
-        $validate = $this->getValidateMethod($c);
-        $validate->getBody()->execute(Variable::named('count')->equals(Scalar::int(0)));
-        /** @var Property $check */
-        foreach ($toCheck as $check) {
-            $condition = ((string) $check->getType()) === InternalType::ARRAY ?
-                Logic::not(ResultOf::empty(Variable::named('this')->property($check->getName()))) :
-                Type::null()->isNotIdenticalTo(Variable::named('this')->property($check->getName()))
-            ;
+        $allowedTypes = [];
+        foreach ($this->currentCollection()['elements'] as $e) {
+            $allowedTypes[$e['name']] = Reference::class((string) $e['type'])->constant('class');
+        }
 
+        $newChoice = NewInstance::of($this->zestClassFactory->buildChoice(), [
+            Type::array($allowedTypes)
+        ]);
+
+        if ($choice->getParentElement() instanceof ComplexType) {
+            //$needsValidation = true;
+            $new = NewInstance::of($collectionClass, [
+                $newChoice,
+                Scalar::int($min),
+                Scalar::int($max)
+            ]);
+            $collection = Variable::named('this')->property('_choices');
+            $c->addProperty(new Property('_choices', Visibility::isPrivate(), $choiceClass));
+            $this->getConstructor($c)->getBody()->execute($collection->equals($new));
+        } else {
+            // @todo there can be multiple choice elements nested in a choice
+            /*
+            $this->getConstructor($c)->getBody()
+                ->execute(
+                    $collection->call('addAllowedType', Reference::class($choiceClass)->constant('class'))
+                )
+            ;
+            $collection = $collection->call('getCollectionByName', Scalar::string('_choice'));
+            */
+        }
+
+        /*
+        if ($needsValidation) {
+            $validate = $this->getValidateMethod($c);
             $validate->getBody()
-                ->if($condition)
-                    ->execute(Variable::named('count')->postIncrement())
-                ->done()
-            ;
+                ->if(Logic::not($collection->call('isValid')))
+                    ->throw(NewInstance::of($this->zestClassFactory->buildValidationException(), [Scalar::string('Bad elements in choice')]))
+                ->done();
         }
+        */
 
-        // @todo build a better error message
-        $validate->getBody()
-            ->if(Variable::named('count')->isGreaterThan(Scalar::int(1)))
-                ->throw(NewInstance::of($this->zestClassFactory->buildValidationException(), [Scalar::string('Only one element can be used in a choice')]))
-            ->done()
+        $write = $this->getWriteToStreamMethod($c);
+        $write->getBody()
+            ->execute(Variable::named('this')->property('_choices')->call('writeToStream', Variable::named('stream')))
         ;
 
-        return array_merge($elements, ...$arrays);
+        if ($choice->getParentElement() instanceof ComplexType) {
+            $this->popCollectionStack();
+        }
     }
 
     /**
      * @param Sequence $sequence
      * @param Class_ $c
-     * @return array
+     * @param AbstractNode|null $collection
      * @throws InvalidSchemaException
      * @throws \Exception
      */
-    private function addSequence(Sequence $sequence, Class_ $c): array
+    private function addSequence(Sequence $sequence, Class_ $c, AbstractNode $collection = null)
     {
-        $arrays = $elements = [];
+        $min = $sequence->getMinOccurs()->getValue();
+        $max = $sequence->getMaxOccurs() ?
+            $sequence->getMaxOccurs()->getValue() :
+            -1
+        ;
+
+        $sequenceClass = $this->zestClassFactory->buildSequence();
+        $newSequence = NewInstance::of($sequenceClass, [Scalar::int($min), Scalar::int($max)]);
+
+        if (null === $collection) {
+            $collection = Variable::named('this')->property('_sequence');
+            $c->addProperty(new Property('_sequence', Visibility::isPrivate(), $sequenceClass));
+            $this->getConstructor($c)->getBody()->execute($collection->equals($newSequence));
+        } else {
+            $this->getConstructor($c)->getBody()->execute($collection->call('add', $newSequence));
+            $collection = $collection->call('getCollectionByName', Scalar::string('_sequence'));
+        }
 
         foreach ($sequence->getChildElements() as $element) {
             if ($element instanceof Element) {
-                $elements[] = $this->addElement($element, $c);
+                $this->addElement($element, $c, $collection);
             } else if ($element instanceof Group) {
-                $arrays[] = $this->addGroup($element, $c);
+                $this->addGroup($element, $c, $collection);
             } else if ($element instanceof Choice) {
-                $arrays[] = $this->addChoice($element, $c);
+                $this->addChoice($element, $c, $collection);
             } else if ($element instanceof Sequence) {
-                $arrays[] = $this->addSequence($element, $c);
+                $this->addSequence($element, $c, $collection);
             } else if ($element instanceof Any) {
-                $arrays[] = $this->addAny($element, $c);
+                $this->addAny($element, $c, $collection);
             }
         }
-
-        return array_merge($elements, ...$arrays);
     }
 
     /**
      * @param Element $element
      * @param Class_ $c
-     * @param AbstractElement|null $parent
-     * @return Property The element property
+     * @return Property|null The element property
      * @throws InvalidSchemaException
      * @throws \Exception
      */
-    private function addElement(Element $element, Class_ $c, AbstractElement $parent = null): Property
+    private function addElement(Element $element, Class_ $c)
     {
         $cn = $c->getName();
 
+        $collection = $this->currentCollection();
+
+        /**
+         * Resolve element ref attribute
+         */
         if ($ref = $element->getRef()) {
             $this->debug('Resolving element reference: ' . (string) $ref, $cn);
             $parent = $element->resolveQNameToElement($ref);
@@ -741,6 +810,9 @@ class ComplexTypeFactory extends AbstractTypeFactory
             $element = $this->mergeElements($parent, $element);
         }
 
+        /**
+         * Resolve any substitution groups
+         */
         while ($substitutionGroup = $element->getSubstitutionGroup()) {
             $this->debug('Resolve element substitution group: ' . (string) $substitutionGroup, $cn);
             $parent = $element->resolveQNameToElement($substitutionGroup);
@@ -748,9 +820,15 @@ class ComplexTypeFactory extends AbstractTypeFactory
             $element = $this->mergeElements($parent, $element);
         }
 
-        $type = $this->resolveElementType($element);
+        /**
+         * Determine element class type
+         */
+        $type = $elementType = $this->resolveElementType($element);
         $this->debug('Element Type: ' . (string) $type, $cn);
 
+        /**
+         * Determine element xsd type
+         */
         $xsdType = null;
         if (null !== $element->getType()) {
             try {
@@ -761,20 +839,34 @@ class ComplexTypeFactory extends AbstractTypeFactory
         }
         $this->debug('XSD Type: ' . (string) $xsdType, $cn);
 
+        $collection['elements'][] = [
+            'name' => $element->getName(),
+            'type' => $type
+        ];
+        $this->updateCurrentCollection($collection);
+
         $propertyName = $element->getName() ?? 'property' . $this->propertyCounter++;
         $this->debug('Property name: ' . $propertyName, $cn);
 
-        $defaultValue = TypeUtil::convertTypeToScalar($element->getType(), $element->getDefault());
+        $defaultValue = TypeUtil::convertTypeToScalar(
+            $element->getType(),
+            $element->getDefault(),
+            $this->xsdTypeFactory
+        );
         $this->debug('Default: ' . (string) $defaultValue, $cn);
 
         $min = $max = 0;
-        $arrayType = false;
+        $isCollection = false;
         $maxOccurs = $element->getMaxOccurs();
-        if ($maxOccurs === false || ($maxOccurs instanceof NonNegativeInteger && $maxOccurs->getValue() > 1)) {
+
+        if ($maxOccurs === false ||
+            false !== $collection ||
+            ($maxOccurs instanceof NonNegativeInteger && $maxOccurs->getValue() > 1)
+        ) {
             $this->debug('Max occurs > 1', $cn);
 
-            $max = false === $maxOccurs ? 0 : $maxOccurs->getValue();
-            $arrayType = true;
+            $max = false === $maxOccurs ? -1 : $maxOccurs->getValue();
+            $isCollection = true;
 
             $this->debug('Adding class method: ' . 'add' . Inflector::classify($propertyName), $cn);
             $adderParam = new Parameter($propertyName, $type);
@@ -782,14 +874,34 @@ class ComplexTypeFactory extends AbstractTypeFactory
 
             $this->debug('Changing property name to ' . Inflector::pluralize($propertyName), $cn);
             $propertyName = Inflector::pluralize($propertyName);
-            $type = InternalType::arrayOf($type);
-            $defaultValue = Type::array();
+            //$type = InternalType::arrayOf($type);
+            //$defaultValue = Type::array();
 
             $adder->addParameter($adderParam);
-            $adder->getBody()->execute(
-                Variable::named('this')->property($propertyName)->arrayIndex()
-                    ->equals(Variable::named($adderParam->getName()))
-            );
+
+            if (false === $collection) {
+                $this->getConstructor($c)->getBody()
+                    ->execute(Variable::named('this')->property($propertyName)->equals(NewInstance::of(
+                        $this->zestClassFactory->buildCollection(), [
+                            Reference::class((string) $type)->constant('class'),
+                            Scalar::string($element->getName()),
+                            Scalar::int($min),
+                            Scalar::int($max)
+                        ]
+                    )));
+            }
+            $type = $defaultValue = $this->zestClassFactory->buildCollection();
+
+            if (false === $collection) {
+                $adder->getBody()->execute(
+                    Variable::named('this')->property($propertyName)
+                        ->call('add', Variable::named($adderParam->getName()))
+                );
+            } else if (isset($collection['selector'])) {
+                $adder->getBody()
+                    ->execute($collection['selector']->call('add', Variable::named($adderParam->getName())));
+            }
+
             if ($this->config->generateFluidSetters) {
                 $adder->setReturnTypes([$c->getName()]);
                 $adder->getBody()
@@ -800,6 +912,10 @@ class ComplexTypeFactory extends AbstractTypeFactory
             $c->addMethod($adder);
         }
 
+        if (false !== $collection) {
+            return null;
+        }
+
         $minOccurs = $element->getMinOccurs();
         if ($minOccurs instanceof NonNegativeInteger && $minOccurs->getValue() > 0) {
             $this->debug('Min occurs is > 0', $cn);
@@ -808,7 +924,7 @@ class ComplexTypeFactory extends AbstractTypeFactory
 
         $this->debug('Adding class property: ' . $propertyName, $cn);
         $property = new Property($propertyName, Visibility::isPrivate(), $type, $defaultValue);
-        if ($min === 0 && (!$type instanceof InternalType || !$type->isArray())) {
+        if ($min === 0 && !$isCollection) {
             $property->addType(InternalType::null());
         }
         $c->addProperty($property);
@@ -817,12 +933,8 @@ class ComplexTypeFactory extends AbstractTypeFactory
 
         $this->debug('Adding writeToStream code', $cn);
         $tag = null === $element->getName() ? Type::null() : Scalar::string($element->getName());
-        $var = $arrayType ? Variable::named('p') : Variable::named('this')->property($propertyName);
-        if (!$arrayType && (!$type instanceof InternalType || !$type->isString())) {
-            $var = Cast::toString($var);
-        } else if ($arrayType && (!$type->getArrayType() instanceof InternalType || !$type->getArrayType()->isString())) {
-            $var = Cast::toString($var);
-        }
+        $var = $isCollection ? Variable::named('p') : Variable::named('this')->property($propertyName);
+        $var = Cast::toString($var);
 
         if ($xsdType instanceof SimpleType || 'special' === $xsdType) {
             $write = null === $element->getName() ?
@@ -845,52 +957,34 @@ class ComplexTypeFactory extends AbstractTypeFactory
                 'writeToStream'
             ;
 
-            $write = $arrayType ?
+            $write = $isCollection ?
                 Variable::named('p')->call($methodToCall, Variable::named('stream'), $tag) :
                 Variable::named('this')->property($propertyName)->call($methodToCall, Variable::named('stream'), $tag)
             ;
         }
 
-        if ($arrayType) {
+        if ($isCollection) {
             $this->getWriteToStreamMethod($c)->getBody()
-                ->foreach(Variable::named('this')->property($propertyName), Variable::named('p'))
+                ->foreach(Variable::named('this')->property($propertyName)->call('all'), Variable::named('p'))
                     ->execute($write)
                 ->done()
             ;
         } else {
-            if (!$parent instanceof Choice && $min > 0) {
-                $this->getWriteToStreamMethod($c)->getBody()->execute($write);
-            } else {
-                $this->getWriteToStreamMethod($c)->getBody()
-                    ->if(Type::null()->isNotIdenticalTo(Variable::named('this')->property($propertyName)))
-                        ->execute($write)
-                    ->done()
-                ;
-            }
+            $this->getWriteToStreamMethod($c)->getBody()
+                ->if(Type::null()->isNotIdenticalTo(Variable::named('this')->property($propertyName)))
+                    ->execute($write)
+                ->done();
         }
 
         $this->debug('Adding validation code', $cn);
 
-        if ($arrayType) {
+        if ($isCollection) {
             $validate = $this->getValidateMethod($c);
-
-            if ($min > 0) {
-                $this->debug('Min > 0... adding validation', $cn);
-                // @todo build a better error message
-                $validate->getBody()
-                    ->if(ResultOf::count(Variable::named('this')->property($propertyName))->isLessThan(Scalar::int($min)))
+            $validate->getBody()
+                ->if(Logic::not(Variable::named('this')->property($propertyName)->call('isValid')))
                     ->throw(NewInstance::of($this->zestClassFactory->buildValidationException(), [Scalar::string('property is out of bounds')]))
-                    ->done();
-            }
-
-            if ($max !== 0) {
-                $this->debug('Max is bounded... adding validation', $cn);
-                // @todo build a better error message
-                $validate->getBody()
-                    ->if(ResultOf::count(Variable::named('this')->property($propertyName))->isGreaterThan(Scalar::int($max)))
-                    ->throw(NewInstance::of($this->zestClassFactory->buildValidationException(), [Scalar::string('property is out of bounds')]))
-                    ->done();
-            }
+                ->done()
+            ;
         }
 
         return $property;
@@ -899,7 +993,7 @@ class ComplexTypeFactory extends AbstractTypeFactory
     /**
      * @param AbstractElement $element
      * @param QName|null $type
-     * @return bool|Class_|InternalType|null
+     * @return bool|Class_|null
      * @throws InvalidSchemaException
      * @throws \Exception
      */
@@ -911,9 +1005,7 @@ class ComplexTypeFactory extends AbstractTypeFactory
             return false;
         }
 
-        if ($internalType = TypeUtil::mapXsdTypeToInternalType($type)) {
-            return $internalType;
-        } else if ($internalType = TypeUtil::mapXsdTypeToInternalXsdType($type, $this->xsdTypeFactory)) {
+        if ($internalType = TypeUtil::mapXsdTypeToInternalXsdType($type, $this->xsdTypeFactory)) {
             return $internalType;
         } else if ($elementType = $element->resolveQNameToElement($type)) {
             if ($elementType instanceof SimpleType) {
@@ -1039,5 +1131,37 @@ class ComplexTypeFactory extends AbstractTypeFactory
         }
 
         return $ret;
+    }
+
+    /**
+     * @param array $collectionInfo
+     */
+    private function pushCollectionStack(array $collectionInfo)
+    {
+        $this->collectionStack[] = $collectionInfo;
+    }
+
+    /**
+     * @return mixed
+     */
+    private function popCollectionStack()
+    {
+        return array_pop($this->collectionStack);
+    }
+
+    /**
+     * @return mixed
+     */
+    private function currentCollection()
+    {
+        return end($this->collectionStack);
+    }
+
+    /**
+     * @param array $collectionInfo
+     */
+    private function updateCurrentCollection(array $collectionInfo)
+    {
+        $this->collectionStack[count($this->collectionStack) - 1] = $collectionInfo;
     }
 }

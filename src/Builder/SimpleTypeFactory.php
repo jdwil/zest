@@ -153,11 +153,7 @@ class SimpleTypeFactory
         $variable = Variable::named(self::VALUE_VAR);
 
         $baseQName = new QName($restriction->getBase());
-        if ($type = TypeUtil::mapXsdTypeToInternalType($baseQName)) {
-            $this->getValueProperty($c)->setType($type);
-            $this->getValueParameter($c)->setType($type);
-            $this->getGetValueMethod($c)->setReturnTypes([$type]);
-        } else if ($type = TypeUtil::mapXsdTypeToInternalXsdType($baseQName, $this->xsdFactory)) {
+        if ($type = TypeUtil::mapXsdTypeToInternalXsdType($baseQName, $this->xsdFactory)) {
             $this->getValueProperty($c)->setType($type);
             $this->getValueParameter($c)->setType($type);
             $this->getGetValueMethod($c)->setReturnTypes([$type]);
@@ -245,9 +241,9 @@ class SimpleTypeFactory
                 ;
 
             } else if ($facet instanceof Pattern) {
-                $pattern = str_replace(['[0-9]', '/'], ['\\d', '\\/'], $facet->getValue());
+                $pattern = preg_replace('/[\x00-\x1F\x7F]/', '.', str_replace(['[0-9]', '/'], ['\\d', '\\/'], $facet->getValue()));
                 $validatorMethod->getBody()
-                    ->if(Logic::not(ResultOf::preg_match(Scalar::string('/' . $pattern . '/'), $variable)))
+                    ->if(Logic::not(ResultOf::preg_match(Scalar::string('###^' . $pattern . '$###'), Cast::toString($variable))))
                         ->throw(NewInstance::of($this->validationException, [Scalar::string('value does not match pattern ' . $pattern)]))
                     ->done()
                     ->newLine()
@@ -465,9 +461,7 @@ class SimpleTypeFactory
      */
     private function resolveListOrUnionType(AbstractElement $element, QName $qname)
     {
-        if ($internalType = TypeUtil::mapXsdTypeToInternalType($qname)) {
-            return $internalType;
-        } else if ($internalType = TypeUtil::mapXsdTypeToInternalXsdType($qname, $this->xsdFactory)) {
+        if ($internalType = TypeUtil::mapXsdTypeToInternalXsdType($qname, $this->xsdFactory)) {
             return $internalType;
         } else if ($elementType = $element->resolveQNameToElement($qname)) {
             if ($elementType instanceof SimpleType) {

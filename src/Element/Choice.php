@@ -13,7 +13,7 @@ class Choice extends AbstractElement implements IdentifiableInterface, AnyAttrib
     use IdentifiableTrait, AnyAttributeTrait;
 
     /**
-     * @var NonNegativeInteger|false|null false is 'unbounded'
+     * @var NonNegativeInteger|false false is 'unbounded'
      */
     protected $maxOccurs;
 
@@ -63,6 +63,8 @@ class Choice extends AbstractElement implements IdentifiableInterface, AnyAttrib
         $ret->choices = [];
         $ret->sequences = [];
         $ret->any = [];
+        $ret->minOccurs = new NonNegativeInteger(1);
+        $ret->maxOccurs = new NonNegativeInteger(1);
 
         foreach ($e->attributes as $key => $value) {
             switch ($key) {
@@ -123,7 +125,7 @@ class Choice extends AbstractElement implements IdentifiableInterface, AnyAttrib
     }
 
     /**
-     * @return false|NonNegativeInteger|null
+     * @return false|NonNegativeInteger
      */
     public function getMaxOccurs()
     {

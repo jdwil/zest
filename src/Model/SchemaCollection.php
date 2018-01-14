@@ -43,7 +43,6 @@ class SchemaCollection
     /**
      * @param string $xmlns
      * @return Schema|false
-     * @throws InvalidSchemaException
      */
     public function getSchemaByXmlns(string $xmlns)
     {
@@ -54,6 +53,5 @@ class SchemaCollection
         }
 
         return false;
-        throw new InvalidSchemaException('Unable to locate schema with xmlns: ' . $xmlns);
     }
 }

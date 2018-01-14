@@ -5,6 +5,7 @@ namespace JDWil\Zest\Builder;
 
 use JDWil\PhpGenny\Builder\Node\Reference;
 use JDWil\PhpGenny\Builder\Node\Scalar;
+use JDWil\PhpGenny\Builder\Node\Type;
 use JDWil\PhpGenny\Builder\Node\Variable;
 use JDWil\PhpGenny\Type\Class_;
 use JDWil\PhpGenny\Type\Interface_;
@@ -111,7 +112,12 @@ class ElementFactory
             if (isset($baseClass)) {
                 $c->setExtends($baseClass);
                 $c->getMethodByName('writeToStream')->getBody()->execute(
-                    Reference::parent()->staticCall('writeToStream', Variable::named('stream'), Scalar::string($element->getName()))
+                    Reference::parent()->staticCall(
+                        'writeToStream',
+                        Variable::named('stream'),
+                        Scalar::string($element->getName()),
+                        Type::true()
+                    )
                 );
             }
 

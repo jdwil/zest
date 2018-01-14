@@ -40,7 +40,6 @@ class AnyUri extends AbstractStringType
     private function isValidUri(string $uri) : bool
     {
         return (bool) preg_match('#(([a-zA-Z][0-9a-zA-Z+\-\.]*:)?/{0,2}[0-9a-zA-Z;/?:@\&=+$\.\-!~*\'()%]+)?(\#[0-9a-zA-Z;/?:@\&=+$\.\-_!~*\'()%]+)?#', $uri);
-        //return filter_var($uri, FILTER_VALIDATE_URL) !== false;
     }
 
     /**

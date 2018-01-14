@@ -12,57 +12,26 @@ use JDWil\Zest\XsdType\QName;
 class TypeUtil
 {
     /**
-     * @param QName $qname
-     * @return null|InternalType
+     * @param QName|null $type
+     * @param string|null $value
+     * @param XsdTypeFactory $factory
+     * @return Scalar|Type|null
+     * @throws \Exception
      */
-    public static function mapXsdTypeToInternalType(QName $qname)
+    public static function convertTypeToScalar(QName $type = null, string $value = null, XsdTypeFactory $factory)
     {
-        $ns = $qname->getNamespace();
-        // @todo not sure if manually checking 'xsd' and 'xs' is correct
-        if ($ns !== null && $ns !== 'xsd' && $ns !== 'xs' && $ns !== 'xml') {
+        if (null === $type || null === $value || (!$internalType = self::mapXsdTypeToInternalXsdType($type, $factory))) {
             return null;
         }
 
-        switch ($qname->getName()) {
-            case 'space':
-            case 'string':
-            case 'ID':
-            case 'IDREF':
-            case 'IDREFS':
-                return InternalType::string();
-
-            case 'boolean':
-                return InternalType::bool();
-
-            case 'long':
-            case 'int':
-            case 'integer':
-                return InternalType::int();
-
-            case 'decimal':
-            case 'float':
-            case 'double':
-                return InternalType::float();
-
-            default:
-                return null;
-        }
-    }
-
-    public static function convertTypeToScalar(QName $type = null, string $value = null)
-    {
-        if (null === $type || null === $value || (!$internalType = self::mapXsdTypeToInternalType($type))) {
-            return null;
-        }
-
-        switch ((string) $internalType) {
-            case InternalType::STRING:
+        switch ($internalType->getName()) {
+            case 'XString':
                 return Scalar::string($value);
-            case InternalType::INT:
+            case 'XInt':
                 return Scalar::int((int) $value);
-            case InternalType::FLOAT:
+            case 'XFloat':
                 return Scalar::float((float) $value);
-            case InternalType::BOOL:
+            case 'XBool':
                 return $value === 'true' ? Type::true() : Type::false();
         }
 
@@ -83,6 +52,26 @@ class TypeUtil
         }
 
         switch ($qname->getName()) {
+            case 'space':
+            case 'string':
+            case 'ID':
+            case 'IDREF':
+            case 'IDREFS':
+                return $factory->buildXString();
+
+            case 'boolean':
+                return $factory->buildXBool();
+
+            case 'long':
+            case 'int':
+            case 'integer':
+                return $factory->buildXInt();
+
+            case 'decimal':
+            case 'float':
+            case 'double':
+                return $factory->buildXFloat();
+
             case 'anyURI':
                 return $factory->buildAnyUri();
 
